@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual Environment
+venv/
+
+# Environment Variables
+.env
+
+# Test Files
+resume.pdf
+*.pdf
+*.docx
+
+# VS Code
+.vscode/

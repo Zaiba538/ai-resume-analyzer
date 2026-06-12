@@ -1,0 +1,15 @@
+AI Engineer
+
+Required Skills:
+Python
+Machine Learning
+SQL
+LLMs
+LangChain
+APIs
+Deep Learning
+
+Responsibilities:
+- Build AI systems
+- Develop ML pipelines
+- Deploy AI applications
