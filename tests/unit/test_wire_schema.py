@@ -109,6 +109,20 @@ def test_objects_closed_even_without_extra_forbid() -> None:
     assert set(wire["required"]) == {"items", "note"}  # defaults do not make fields optional
 
 
+def test_class_docstrings_not_sent_but_field_descriptions_kept() -> None:
+    class Documented(BaseModel):
+        """INTERNAL-NOTE: never send this to the model."""
+
+        model_config = ConfigDict(extra="forbid")
+        value: str = Field(description="Shown to the model")
+
+    wire = wire_schema(Documented)
+    assert "INTERNAL-NOTE" not in json.dumps(wire)
+    assert wire["properties"]["value"]["description"] == "Shown to the model"
+    for schema in SCHEMAS:
+        assert all("description" not in obj for obj in _objects(wire_schema(schema)))
+
+
 def test_wire_schema_is_a_defensive_copy() -> None:
     first = wire_schema(ResumeProfile)
     first["properties"].clear()

@@ -4,7 +4,8 @@ Flow for one call:
 
 1. A "wire" JSON schema is derived from the Pydantic model: references inlined,
    every object closed (``additionalProperties: false``) with all properties
-   required, and value constraints (lengths, counts, patterns) removed. Groq's
+   required, class docstrings dropped, and value constraints (lengths, counts,
+   patterns) removed. Groq's
    strict mode supports only a subset of JSON Schema, so the wire schema
    carries structure and enums while the constraints are enforced locally.
 2. The model is called with ``response_format=json_schema`` (strict). The SDK
@@ -97,6 +98,9 @@ def _to_wire(node: Any) -> Any:
         elif key not in _CONSTRAINT_KEYWORDS:
             wire[key] = _to_wire(value)
     if wire.get("type") == "object" or "properties" in wire:
+        # Pydantic turns class docstrings into object descriptions: they are
+        # developer notes, not instructions for the model, so they are not sent.
+        wire.pop("description", None)
         wire["type"] = "object"
         wire["additionalProperties"] = False
         wire["required"] = list(wire.get("properties", {}))
