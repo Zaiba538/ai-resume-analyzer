@@ -80,6 +80,12 @@ class Settings(BaseSettings):
     max_upload_bytes: int = Field(default=5 * 1024 * 1024, ge=1024, le=20 * 1024 * 1024)
     max_pdf_pages: int = Field(default=10, ge=1, le=100)
     max_extracted_chars: int = Field(default=50_000, ge=1_000, le=500_000)
+    max_job_description_chars: int = Field(default=20_000, ge=500, le=100_000)
+
+    # Embeddings for semantic similarity (loaded once at start-up). The revision
+    # pins exact model files on the Hugging Face Hub; remote code is never run.
+    embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_model_revision: str = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
 
     # HTTP surface.
     frontend_dir: Path = PROJECT_ROOT / "frontend"
@@ -104,6 +110,14 @@ class Settings(BaseSettings):
         value = value.strip()
         if not value:
             raise ValueError("model name must not be blank")
+        return value
+
+    @field_validator("embedding_model_name", "embedding_model_revision")
+    @classmethod
+    def _identifier_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value or any(ch.isspace() for ch in value):
+            raise ValueError("must be non-empty without whitespace")
         return value
 
     @field_validator("groq_api_base_url")

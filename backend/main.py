@@ -13,7 +13,7 @@ RequestId -> SecurityHeaders -> AccessLog -> BodySizeLimit -> UnhandledException
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
 import httpx
@@ -21,7 +21,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from backend import __version__
-from backend.api.routes import health, parse
+from backend.api.routes import health, match, parse
 from backend.core.body_limit import BodySizeLimitMiddleware
 from backend.core.config import Settings, get_settings
 from backend.core.errors import UnhandledExceptionMiddleware, register_exception_handlers
@@ -32,9 +32,15 @@ from backend.core.logging import (
 )
 from backend.core.request_id import RequestIdMiddleware
 from backend.core.security_headers import SecurityHeadersMiddleware
-from backend.health.readiness import CONFIG_VALID, GROQ_API_KEY_CONFIGURED, ReadinessRegistry
+from backend.health.readiness import (
+    CONFIG_VALID,
+    EMBEDDING_MODEL_LOADED,
+    GROQ_API_KEY_CONFIGURED,
+    ReadinessRegistry,
+)
 from backend.health.upstream import GroqUpstreamMonitor
 from backend.llm.client import LLMClients
+from backend.scoring.embeddings import Embedder, EmbeddingService, load_sentence_transformer
 
 logger = logging.getLogger("backend.main")
 
@@ -51,12 +57,15 @@ def create_app(
     *,
     groq_http_client: httpx.AsyncClient | None = None,
     llm_http_client: httpx.AsyncClient | None = None,
+    embedder_factory: Callable[[], Embedder] | None = None,
 ) -> FastAPI:
     """Build the application.
 
     ``groq_http_client`` and ``llm_http_client`` let tests inject fake
     transports for the upstream probe and for LLM calls. In production each
-    component creates and owns its own client.
+    component creates and owns its own client. ``embedder_factory`` replaces the
+    Sentence-Transformer loader (tests use a deterministic fake); it is called
+    once, at start-up.
     """
     settings = settings or get_settings()
     disable_third_party_tracing()
@@ -65,6 +74,9 @@ def create_app(
     readiness = ReadinessRegistry()
     readiness.register(CONFIG_VALID, ready=True)  # Settings validated above.
     readiness.register(GROQ_API_KEY_CONFIGURED, ready=settings.groq_api_key_configured)
+    readiness.register(EMBEDDING_MODEL_LOADED)
+
+    embeddings = EmbeddingService(embedder_factory or (lambda: load_sentence_transformer(settings)))
 
     upstream_monitor = GroqUpstreamMonitor(
         api_key=settings.groq_api_key,
@@ -78,6 +90,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        readiness.set_ready(EMBEDDING_MODEL_LOADED, await embeddings.load())
         await upstream_monitor.start()
         logger.info("application_started", extra={"component": "app"})
         try:
@@ -100,10 +113,12 @@ def create_app(
     app.state.readiness = readiness
     app.state.upstream_monitor = upstream_monitor
     app.state.llm_clients = llm_clients
+    app.state.embeddings = embeddings
 
     register_exception_handlers(app)
     app.include_router(health.router)
     app.include_router(parse.router)
+    app.include_router(match.router)
 
     # The frontend is mounted last so that API routes always take precedence.
     if settings.frontend_dir.is_dir():
@@ -115,7 +130,10 @@ def create_app(
     app.add_middleware(UnhandledExceptionMiddleware)
     app.add_middleware(
         BodySizeLimitMiddleware,
-        max_body_bytes=settings.max_upload_bytes + MULTIPART_OVERHEAD_BYTES,
+        # File + job description (UTF-8, at most 4 bytes per character) + overhead.
+        max_body_bytes=settings.max_upload_bytes
+        + settings.max_job_description_chars * 4
+        + MULTIPART_OVERHEAD_BYTES,
     )
     app.add_middleware(AccessLogMiddleware)
     app.add_middleware(

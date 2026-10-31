@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from backend.api.deps import ReadinessDep, UpstreamMonitorDep
 from backend.health.upstream import UpstreamSnapshot
+from backend.scoring.ats_composite import evaluate_ats_gate
 
 router = APIRouter(tags=["health"])
 
@@ -26,10 +27,16 @@ class HealthResponse(BaseModel):
     status: Literal["alive"]
 
 
+class ReadyScoring(BaseModel):
+    ats_composite: str
+    calibration_version: str | None
+
+
 class ReadyResponse(BaseModel):
     status: Literal["ready", "not_ready"]
     checks: dict[str, bool]
     upstream: dict[str, UpstreamSnapshot]
+    scoring: ReadyScoring
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -44,9 +51,13 @@ async def health() -> HealthResponse:
 )
 async def ready(readiness: ReadinessDep, upstream: UpstreamMonitorDep) -> JSONResponse:
     is_ready = readiness.is_ready
+    gate = evaluate_ats_gate()
     body = ReadyResponse(
         status="ready" if is_ready else "not_ready",
         checks=readiness.snapshot(),
         upstream={"groq": upstream.snapshot()},
+        scoring=ReadyScoring(
+            ats_composite=gate.status, calibration_version=gate.calibration_version
+        ),
     )
     return JSONResponse(body.model_dump(mode="json"), status_code=200 if is_ready else 503)

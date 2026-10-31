@@ -29,7 +29,12 @@ def test_ready_without_api_key_is_not_ready(start_app, fake_groq) -> None:
     assert response.status_code == 503
     body = response.json()
     assert body["status"] == "not_ready"
-    assert body["checks"] == {"config_valid": True, "groq_api_key_configured": False}
+    assert body["checks"] == {
+        "config_valid": True,
+        "groq_api_key_configured": False,
+        "embedding_model_loaded": True,  # M5 component
+    }
+    assert body["scoring"] == {"ats_composite": "not_calibrated", "calibration_version": None}
     groq = body["upstream"]["groq"]
     assert groq["status"] == "unknown"
     assert groq["configured_models_present"] is None
@@ -43,7 +48,12 @@ def test_ready_with_key_and_available_upstream(start_app, fake_groq) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ready"
-    assert body["checks"] == {"config_valid": True, "groq_api_key_configured": True}
+    assert body["checks"] == {
+        "config_valid": True,
+        "groq_api_key_configured": True,
+        "embedding_model_loaded": True,  # M5 component
+    }
+    assert body["scoring"] == {"ats_composite": "not_calibrated", "calibration_version": None}
     groq = body["upstream"]["groq"]
     assert groq["status"] == "available"
     assert groq["configured_models_present"] is True

@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 from backend.core.config import Settings
 from backend.core.logging import PrivacyJsonFormatter
 from backend.main import create_app
+from tests.fixtures.embeddings import CountingFactory
 
 # Fake, syntactically plausible key. Never a real credential.
 FAKE_API_KEY = "gsk_test_" + "0" * 40
@@ -99,9 +100,17 @@ def start_app(
     clients: list[TestClient] = []
 
     def _start(
-        *, extra_routes: Callable[[Any], None] | None = None, **overrides: Any
+        *,
+        extra_routes: Callable[[Any], None] | None = None,
+        embedder_factory: Callable[[], Any] | None = None,
+        **overrides: Any,
     ) -> TestClient:
-        app = create_app(make_settings(**overrides), groq_http_client=fake_groq.client())
+        # Tests never download or load the real Sentence-Transformer model.
+        app = create_app(
+            make_settings(**overrides),
+            groq_http_client=fake_groq.client(),
+            embedder_factory=embedder_factory or CountingFactory(),
+        )
         if extra_routes is not None:
             extra_routes(app)
         client = TestClient(app, raise_server_exceptions=False)
