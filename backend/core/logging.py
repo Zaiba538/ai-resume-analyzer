@@ -54,6 +54,7 @@ ALLOWED_FIELDS = frozenset(
         "output_tokens",
         "node",
         "timing_ms",
+        "attempts",
         "critic_verdict",
         "security_flag_types",
     }

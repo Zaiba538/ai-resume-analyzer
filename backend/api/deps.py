@@ -13,6 +13,7 @@ from fastapi import Depends, Request
 from backend.core.config import Settings
 from backend.health.readiness import ReadinessRegistry
 from backend.health.upstream import GroqUpstreamMonitor
+from backend.llm.client import LLMClients
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -27,6 +28,11 @@ def get_upstream_monitor(request: Request) -> GroqUpstreamMonitor:
     return request.app.state.upstream_monitor
 
 
+def get_llm_clients(request: Request) -> LLMClients:
+    return request.app.state.llm_clients
+
+
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
+LLMClientsDep = Annotated[LLMClients, Depends(get_llm_clients)]
 ReadinessDep = Annotated[ReadinessRegistry, Depends(get_readiness)]
 UpstreamMonitorDep = Annotated[GroqUpstreamMonitor, Depends(get_upstream_monitor)]

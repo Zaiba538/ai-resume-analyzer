@@ -59,6 +59,19 @@ class Settings(BaseSettings):
     groq_probe_interval_seconds: float = Field(default=300.0, ge=30.0, le=3600.0)
     groq_probe_timeout_seconds: float = Field(default=5.0, gt=0.0, le=30.0)
 
+    # LLM calls (generation agents).
+    llm_timeout_seconds: float = Field(default=30.0, gt=0.0, le=120.0)
+    llm_max_retries: int = Field(default=2, ge=0, le=5)
+    llm_reasoning_effort: Literal["low", "medium", "high"] = "low"
+    llm_max_output_tokens: int = Field(default=4096, ge=256, le=32768)
+
+    # Prompt Guard (supplementary, flag-only injection classifier).
+    prompt_guard_chunk_chars: int = Field(default=800, ge=200, le=2000)
+    prompt_guard_max_chunks: int = Field(default=16, ge=1, le=64)
+    prompt_guard_concurrency: int = Field(default=4, ge=1, le=16)
+    # Uncalibrated display threshold; calibration and any enforcement are M12.
+    prompt_guard_display_threshold: float = Field(default=0.9, gt=0.0, lt=1.0)
+
     # Reports and the Critic loop (decisions D4 and D6).
     report_ttl_seconds: int = Field(default=3600, ge=60, le=MAX_REPORT_TTL_SECONDS)
     max_revisions: int = Field(default=1, ge=0, le=3)

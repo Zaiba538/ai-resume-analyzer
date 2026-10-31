@@ -34,6 +34,7 @@ from backend.core.request_id import RequestIdMiddleware
 from backend.core.security_headers import SecurityHeadersMiddleware
 from backend.health.readiness import CONFIG_VALID, GROQ_API_KEY_CONFIGURED, ReadinessRegistry
 from backend.health.upstream import GroqUpstreamMonitor
+from backend.llm.client import LLMClients
 
 logger = logging.getLogger("backend.main")
 
@@ -49,11 +50,13 @@ def create_app(
     settings: Settings | None = None,
     *,
     groq_http_client: httpx.AsyncClient | None = None,
+    llm_http_client: httpx.AsyncClient | None = None,
 ) -> FastAPI:
     """Build the application.
 
-    ``groq_http_client`` lets tests inject a fake transport for the upstream
-    probe. In production the monitor creates and owns its own client.
+    ``groq_http_client`` and ``llm_http_client`` let tests inject fake
+    transports for the upstream probe and for LLM calls. In production each
+    component creates and owns its own client.
     """
     settings = settings or get_settings()
     disable_third_party_tracing()
@@ -71,6 +74,7 @@ def create_app(
         timeout_seconds=settings.groq_probe_timeout_seconds,
         client=groq_http_client,
     )
+    llm_clients = LLMClients(settings, http_client=llm_http_client, monitor=upstream_monitor)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -80,6 +84,7 @@ def create_app(
             yield
         finally:
             await upstream_monitor.stop()
+            await llm_clients.aclose()
             logger.info("application_stopped", extra={"component": "app"})
 
     docs = settings.api_docs_enabled
@@ -94,6 +99,7 @@ def create_app(
     app.state.settings = settings
     app.state.readiness = readiness
     app.state.upstream_monitor = upstream_monitor
+    app.state.llm_clients = llm_clients
 
     register_exception_handlers(app)
     app.include_router(health.router)
