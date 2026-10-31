@@ -10,8 +10,8 @@
 # Version control and local environments
 .git
 .github
-**/venv
-**/.venv
+**/venv*
+**/.venv*
 
 # Caches and build artefacts
 **/__pycache__

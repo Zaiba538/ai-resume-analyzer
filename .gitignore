@@ -2,9 +2,9 @@
 __pycache__/
 *.pyc
 
-# Virtual Environment
-venv/
-.venv/
+# Virtual Environments (any name: venv/, .venv/, .venv312/, venv-py312/, ...)
+venv*/
+.venv*/
 
 # Environment Variables
 .env
