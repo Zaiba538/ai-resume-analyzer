@@ -221,7 +221,11 @@ async def test_other_bad_request_not_repaired() -> None:
 
 @pytest.mark.asyncio
 async def test_output_validation_applied_to_result() -> None:
-    dirty = {**VALID, "projects": ["See https://evil.example/x for details"], "skills": ["Py‮thon"]}
+    dirty = {
+        **VALID,
+        "projects": ["See https://evil.example/x for details"],
+        "skills": ["Py\u202ethon"],
+    }
     fake = FakeGroqChat().queue(json_reply(dirty))
     result = await _generate(_llm(fake))
     assert result.output.skills == ["Python"]

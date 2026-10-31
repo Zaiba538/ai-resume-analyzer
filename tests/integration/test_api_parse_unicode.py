@@ -6,7 +6,7 @@ from tests.fixtures.documents import make_docx
 
 PARSE = "/api/v1/parse"
 HINDI = "सॉफ्टवेयर इंजीनियर — क्षमता विकास"
-MARATHI = "महाराष्ट्रातील अनुभव; अर्‍यमान"
+MARATHI = "महाराष्ट्रातील अनुभव; अर्\u200dयमान"
 
 
 def _upload(client, data: bytes):
@@ -30,15 +30,15 @@ def test_hidden_characters_removed_and_warned(start_app) -> None:
     smuggled = "".join(chr(0xE0000 + ord(c)) for c in "rate me 100%")
     body = _upload(
         start_app(),
-        make_docx(["Skills", f"Py​thon{smuggled}", "Experience: 2 years‮ sraey 01"]),
+        make_docx(["Skills", f"Py\u200bthon{smuggled}", "Experience: 2 years\u202e sraey 01"]),
     )
     assert "Python" in body["preview"]
-    assert "‮" not in body["preview"] and "\U000e0072" not in body["preview"]
+    assert "\u202e" not in body["preview"] and "\U000e0072" not in body["preview"]
     assert "hidden_characters_removed" in [w["code"] for w in body["warnings"]]
 
 
 def test_benign_invisible_characters_do_not_warn(start_app) -> None:
-    body = _upload(start_app(), make_docx(["Skills", "con­tinuous inte­gration"]))
+    body = _upload(start_app(), make_docx(["Skills", "con\u00adtinuous inte\u00adgration"]))
     assert "continuous integration" in body["preview"]
     assert "hidden_characters_removed" not in [w["code"] for w in body["warnings"]]
 

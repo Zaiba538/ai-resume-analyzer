@@ -44,12 +44,14 @@ from backend.core.errors import AppError
 MAX_COMBINING_RUN = 8
 
 _NEWLINE_EQUIVALENTS = {"\r\n": "\n", "\r": "\n", "\x0b": "\n", "\x0c": "\n", "\x85": "\n"}
-_LINE_SEPARATORS = {" ": "\n", " ": "\n"}
+_LINE_SEPARATORS = {"\u2028": "\n", "\u2029": "\n"}
 _ALLOWED_CONTROLS = frozenset({"\n", "\t"})
-_JOINERS = frozenset({"‌", "‍"})
+_JOINERS = frozenset({"\u200c", "\u200d"})
 # Invisible but routinely left behind by word processors and PDF exporters.
-_BENIGN_FORMAT = frozenset({"­", "﻿"})
-_BIDI_CONTROLS = frozenset("؜‎‏‪‫‬‭‮⁦⁧⁨⁩")
+_BENIGN_FORMAT = frozenset({"\u00ad", "\ufeff"})
+_BIDI_CONTROLS = frozenset(
+    "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"
+)
 # Below this code point (Latin, IPA, Greek, Cyrillic, Armenian) joiners have no
 # orthographic use.
 _JOINER_SCRIPT_THRESHOLD = 0x0590

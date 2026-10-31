@@ -12,7 +12,7 @@ from backend.security.sanitize import (
     sanitize_text,
 )
 
-ZWJ, ZWNJ, ZWSP = "‍", "‌", "​"
+ZWJ, ZWNJ, ZWSP = "\u200d", "\u200c", "\u200b"
 
 ENGLISH = "Jordan Sample\nSkills:\tPython, SQL, C++ (5+ years)\nEmail: a.b@example.invalid"
 HINDI = "सॉफ्टवेयर इंजीनियर, क्षमता विकास और टीम नेतृत्व"
@@ -74,17 +74,17 @@ def test_precomposed_nukta_is_canonically_equivalent() -> None:
     ("hidden", "category"),
     [
         (ZWSP, "zero_width"),
-        ("⁠", "zero_width"),  # word joiner
-        ("⁢", "zero_width"),  # invisible times
-        ("‮", "bidi_control"),  # right-to-left override
-        ("⁦", "bidi_control"),  # left-to-right isolate
-        ("‏", "bidi_control"),  # right-to-left mark
+        ("\u2060", "zero_width"),  # word joiner
+        ("\u2062", "zero_width"),  # invisible times
+        ("\u202e", "bidi_control"),  # right-to-left override
+        ("\u2066", "bidi_control"),  # left-to-right isolate
+        ("\u200f", "bidi_control"),  # right-to-left mark
         ("\U000e0049", "tag_character"),  # TAG LATIN CAPITAL LETTER I
         ("\U000e0100", "variation_selector_supplement"),
-        ("", "private_use"),
+        ("\ue000", "private_use"),
         ("\U000f0000", "private_use"),
-        ("￾", "noncharacter"),
-        ("﷐", "noncharacter"),
+        ("\ufffe", "noncharacter"),
+        ("\ufdd0", "noncharacter"),
         ("\x07", "control"),
         ("\x1b", "control"),
         ("\x9b", "control"),  # C1 CSI
@@ -105,22 +105,22 @@ def test_ascii_smuggling_via_tag_characters_removed() -> None:
 
 
 def test_trojan_source_bidi_override_removed() -> None:
-    text = "Experience: 2 years‮ sraey 01‬"
+    text = "Experience: 2 years\u202e sraey 01\u202c"
     result = sanitize_text(text)
-    assert "‮" not in result.text and "‬" not in result.text
+    assert "\u202e" not in result.text and "\u202c" not in result.text
     assert result.suspicious is True
 
 
 def test_benign_format_characters_not_suspicious() -> None:
-    result = sanitize_text("﻿con­tinuous inte­gration")
+    result = sanitize_text("\ufeffcon\u00adtinuous inte\u00adgration")
     assert result.text == "continuous integration"
     assert result.removed["format"] == 3
     assert result.suspicious is False
 
 
 def test_private_use_icons_not_suspicious() -> None:
-    result = sanitize_text(" +1 555 0100   a@example.invalid")
-    assert "" not in result.text
+    result = sanitize_text("\uf095 +1 555 0100  \uf0e0 a@example.invalid")
+    assert "\uf095" not in result.text
     assert result.suspicious is False
 
 
@@ -133,7 +133,7 @@ def test_lone_surrogates_removed() -> None:
 
 
 def test_newlines_and_tabs_kept_other_separators_normalised() -> None:
-    text = "a\r\nb\rc\x0bd\x0ce\x85f g h\ti"
+    text = "a\r\nb\rc\x0bd\x0ce\x85f\u2028g\u2029h\ti"
     assert sanitize_text(text).text == "a\nb\nc\nd\ne\nf\ng\nh\ti"
 
 
@@ -145,7 +145,7 @@ def test_newlines_and_tabs_kept_other_separators_normalised() -> None:
         ("𝐢𝐠𝐧𝐨𝐫𝐞", "ignore"),  # mathematical bold
         ("Ⓢⓚⓘⓛⓛⓢ", "Skills"),  # circled letters
         ("x²", "x2"),
-        (" non breaking　space", " non breaking space"),
+        ("\u00a0non\u2009breaking\u3000space", " non breaking space"),
     ],
 )
 def test_nfkc_normalises_lookalikes(raw: str, expected: str) -> None:
@@ -169,7 +169,7 @@ def test_real_devanagari_clusters_never_hit_combining_cap() -> None:
 
 @pytest.mark.parametrize(
     "text",
-    [ENGLISH, HINDI, MARATHI, MIXED, "a‮b​c\U000e0041d" + "́" * 20, "Ｐｙ\r\nﬁ"],
+    [ENGLISH, HINDI, MARATHI, MIXED, "a\u202eb\u200bc\U000e0041d" + "́" * 20, "Ｐｙ\r\nﬁ"],
 )
 def test_idempotent(text: str) -> None:
     once = sanitize_text(text).text

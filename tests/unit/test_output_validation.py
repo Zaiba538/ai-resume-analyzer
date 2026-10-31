@@ -117,7 +117,7 @@ def test_skill_gap_limits() -> None:
 
 
 def test_output_strings_are_sanitised() -> None:
-    dirty = {**PROFILE, "skills": ["Py‮thon", "S​QL\x07", "\U000e0041Docker"]}
+    dirty = {**PROFILE, "skills": ["Py\u202ethon", "S\u200bQL\x07", "\U000e0041Docker"]}
     cleaned, flags = validate_llm_output(ResumeProfile.model_validate(dirty), source_texts=[""])
     assert cleaned.skills == ["Python", "SQL", "Docker"]
     assert flags == []
@@ -166,12 +166,14 @@ def test_technology_names_are_not_links() -> None:
 def test_cleaning_that_empties_a_required_string_is_rejected() -> None:
     # model_copy(update=...) skips validation, simulating a value that is only
     # invalid after cleaning (it is entirely invisible characters).
-    profile = ResumeProfile.model_validate(PROFILE).model_copy(update={"skills": ["​​"]})
+    profile = ResumeProfile.model_validate(PROFILE).model_copy(update={"skills": ["\u200b\u200b"]})
     with pytest.raises(ValidationError):
         validate_llm_output(profile, source_texts=[""])
 
 
 def test_multilingual_output_preserved() -> None:
-    profile = ResumeProfile.model_validate({**PROFILE, "skills": ["पायथन", "डेटा विश्लेषण", "अर्‍य"]})
+    profile = ResumeProfile.model_validate(
+        {**PROFILE, "skills": ["पायथन", "डेटा विश्लेषण", "अर्\u200dय"]}
+    )
     cleaned, _ = validate_llm_output(profile, source_texts=[""])
-    assert cleaned.skills == ["पायथन", "डेटा विश्लेषण", "अर्‍य"]
+    assert cleaned.skills == ["पायथन", "डेटा विश्लेषण", "अर्\u200dय"]
