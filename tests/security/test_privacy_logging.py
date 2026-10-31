@@ -2,8 +2,9 @@
 
 Canary strings are injected through every input channel the API has so far:
 path, query string, headers (including Authorization, Cookie and User-Agent),
-request bodies, and exception messages. None may appear in captured log output.
-Later milestones extend ``CANARY_REQUESTS`` with their endpoints.
+request bodies, exception messages, and (M2) uploaded document content and
+file names. None may appear in captured log output. Later milestones extend
+this module with their endpoints.
 """
 
 from __future__ import annotations
@@ -53,6 +54,44 @@ def test_no_canary_reaches_logs(start_app, captured_logs) -> None:
     assert captured_logs.events("request_completed"), "access log scaffold produced nothing"
     for secret in (CANARY, CANARY_IP, FAKE_API_KEY):
         assert secret not in text, f"{secret!r} leaked into logs"
+
+
+def test_parse_uploads_never_log_content_or_filenames(start_app, captured_logs) -> None:
+    """M2: document text, file names and rejected payloads stay out of logs."""
+    from tests.fixtures.documents import make_docx, make_pdf
+
+    client = start_app()
+    uploads = [
+        (f"{CANARY}.pdf", make_pdf([["Skills", f"Python {CANARY}"]]), {"include_preview": "true"}),
+        (f"{CANARY}.docx", make_docx(["Skills", CANARY], header=CANARY), {}),
+        (f"{CANARY}.pdf", b"%PDF-1.7\n" + CANARY.encode() * 50, {}),  # unreadable
+        (f"{CANARY}.txt", CANARY.encode(), {}),  # unsupported type
+    ]
+    statuses = []
+    for filename, data, fields in uploads:
+        response = client.post(
+            "/api/v1/parse", files={"file": (filename, data)}, data=fields, headers=CANARY_HEADERS
+        )
+        statuses.append(response.status_code)
+    assert statuses == [200, 200, 422, 415]
+
+    assert CANARY not in captured_logs.text
+    parsed = captured_logs.events("document_parsed")
+    assert {r["file_type"] for r in parsed} == {"pdf", "docx"}
+    for record in parsed:
+        assert set(record) <= {
+            "ts",
+            "level",
+            "logger",
+            "event",
+            "request_id",
+            "file_type",
+            "file_size_bytes",
+            "page_count",
+            "char_count",
+        }
+    rejected = captured_logs.events("app_error")
+    assert {r["error_code"] for r in rejected} == {"unreadable_document", "unsupported_file_type"}
 
 
 def test_access_log_uses_route_templates_not_raw_paths(start_app, captured_logs) -> None:

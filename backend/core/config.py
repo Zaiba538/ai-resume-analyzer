@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     report_ttl_seconds: int = Field(default=3600, ge=60, le=MAX_REPORT_TTL_SECONDS)
     max_revisions: int = Field(default=1, ge=0, le=3)
 
+    # Upload validation (deterministic; the only layer that rejects requests).
+    max_upload_bytes: int = Field(default=5 * 1024 * 1024, ge=1024, le=20 * 1024 * 1024)
+    max_pdf_pages: int = Field(default=10, ge=1, le=100)
+    max_extracted_chars: int = Field(default=50_000, ge=1_000, le=500_000)
+
     # HTTP surface.
     frontend_dir: Path = PROJECT_ROOT / "frontend"
     api_docs_enabled: bool = False

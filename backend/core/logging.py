@@ -79,6 +79,8 @@ QUIET_LOGGERS = (
     "filelock",
     "multipart",
     "python_multipart",
+    "pypdf",
+    "docx",
 )
 
 TRACING_ENV_OVERRIDES = {"LANGSMITH_TRACING": "false", "LANGCHAIN_TRACING_V2": "false"}

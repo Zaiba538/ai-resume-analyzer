@@ -24,6 +24,15 @@ class ErrorBody(BaseModel):
     details: list[ErrorDetail] | None = None
 
 
+class ApiWarning(BaseModel):
+    """A non-fatal issue the client should know about. Never contains user data."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str
+    message: str
+
+
 class ErrorEnvelope(BaseModel):
     """The single error response shape: ``{"error": {...}}``."""
 

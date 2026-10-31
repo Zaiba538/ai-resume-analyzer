@@ -6,8 +6,8 @@ effects (no settings loading, no logging configuration):
     uvicorn --factory backend.main:create_app --no-access-log --port 7860
 
 Middleware order, outermost first:
-RequestId -> SecurityHeaders -> AccessLog -> UnhandledException -> routes.
-Rate limiting and body-size limits join this chain in later milestones.
+RequestId -> SecurityHeaders -> AccessLog -> BodySizeLimit -> UnhandledException
+-> routes. Rate limiting (M10) joins between AccessLog and BodySizeLimit.
 """
 
 from __future__ import annotations
@@ -21,7 +21,8 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from backend import __version__
-from backend.api.routes import health
+from backend.api.routes import health, parse
+from backend.core.body_limit import BodySizeLimitMiddleware
 from backend.core.config import Settings, get_settings
 from backend.core.errors import UnhandledExceptionMiddleware, register_exception_handlers
 from backend.core.logging import (
@@ -39,6 +40,9 @@ logger = logging.getLogger("backend.main")
 DOCS_URL = "/docs"
 REDOC_URL = "/redoc"
 OPENAPI_URL = "/openapi.json"
+
+# Headroom above the file limit for multipart boundaries, part headers and fields.
+MULTIPART_OVERHEAD_BYTES = 64 * 1024
 
 
 def create_app(
@@ -93,6 +97,7 @@ def create_app(
 
     register_exception_handlers(app)
     app.include_router(health.router)
+    app.include_router(parse.router)
 
     # The frontend is mounted last so that API routes always take precedence.
     if settings.frontend_dir.is_dir():
@@ -102,6 +107,10 @@ def create_app(
 
     # add_middleware prepends, so the last one added is the outermost.
     app.add_middleware(UnhandledExceptionMiddleware)
+    app.add_middleware(
+        BodySizeLimitMiddleware,
+        max_body_bytes=settings.max_upload_bytes + MULTIPART_OVERHEAD_BYTES,
+    )
     app.add_middleware(AccessLogMiddleware)
     app.add_middleware(
         SecurityHeadersMiddleware,
