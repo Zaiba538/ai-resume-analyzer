@@ -1,0 +1,38 @@
+[project]
+name = "resume-intelligence-platform"
+version = "0.1.0"
+description = "Multi-Agent AI Resume Intelligence Platform (FastAPI + LangGraph + Groq)"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+# Dependencies are managed in requirements.in (top-level pins) and the hashed
+# locks requirements.txt / requirements-dev.txt; see the headers of those files.
+
+[tool.uv]
+# Environments the hashed locks are resolved for. Restricting resolution keeps
+# CUDA-enabled torch (and other unsupported-platform branches) out of the locks.
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+# Legacy Streamlit application: reference code only, kept unmodified.
+extend-exclude = ["app.py", "agents", "utils", "venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra --strict-markers -m 'not live'"
+markers = [
+    "live: calls real external services (Groq); opt-in with `pytest -m live`, requires GROQ_API_KEY",
+]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"

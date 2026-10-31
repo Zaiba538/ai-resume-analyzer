@@ -4,14 +4,24 @@ __pycache__/
 
 # Virtual Environment
 venv/
+.venv/
 
 # Environment Variables
 .env
+.env.*
+!.env.example
 
 # Test Files
 resume.pdf
 *.pdf
 *.docx
+# Synthetic test fixtures only (never real resumes)
+!tests/fixtures/**/*.pdf
+!tests/fixtures/**/*.docx
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
 
 # VS Code
 .vscode/
