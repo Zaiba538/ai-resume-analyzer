@@ -61,6 +61,19 @@ def _sanitize_strings(value: Any) -> Any:
     return value
 
 
+def sanitize_data(value: Any) -> Any:
+    """Apply M3 Unicode sanitisation to every string in JSON-like data."""
+    return _sanitize_strings(value)
+
+
+def sanitize_model[T: BaseModel](model: T) -> T:
+    """Apply M3 Unicode sanitisation to every string of a model and re-validate it.
+
+    Raises ``pydantic.ValidationError`` if sanitisation leaves the model invalid.
+    """
+    return type(model).model_validate(_sanitize_strings(model.model_dump(mode="python")))
+
+
 def clean_profile(profile: ResumeProfile) -> ResumeProfile:
     """Re-sanitise every string in a profile before it enters a prompt.
 

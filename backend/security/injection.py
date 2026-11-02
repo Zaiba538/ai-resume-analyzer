@@ -80,7 +80,8 @@ _PATTERNS: tuple[tuple[FlagType, re.Pattern[str]], ...] = (
     (
         "delimiter_injection",
         re.compile(
-            r"<\s*/?\s*(resume|job_description|profile|answer|question|system|instructions?)\s*>|"
+            r"<\s*/?\s*(resume|job_description|profile|answer|question|agent_outputs|system|"
+            r"instructions?)\s*>|"
             r"<\|[^|>\n]{1,40}\|>|\[/?(INST|SYS)\]|###\s*(instruction|system)",
             _I,
         ),

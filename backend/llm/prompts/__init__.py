@@ -22,7 +22,15 @@ from dataclasses import dataclass
 # (role, content) pairs, as accepted by LangChain chat models.
 Message = tuple[str, str]
 
-UNTRUSTED_TAGS = ("resume", "job_description", "profile", "answer", "question")
+UNTRUSTED_TAGS = (
+    "resume",
+    "job_description",
+    "profile",
+    "answer",
+    "question",
+    # M6: agent outputs under review by the Critic (generated from untrusted input).
+    "agent_outputs",
+)
 
 UNTRUSTED_DATA_RULES = (
     "Security rules (always apply):\n"
