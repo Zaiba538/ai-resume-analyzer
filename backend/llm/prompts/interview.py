@@ -7,7 +7,7 @@ contains only the requested levels (approved M4 decision B). Level names are
 not template parameters because prompt parameters are integers only.
 """
 
-from backend.llm.prompts import PromptSpec
+from backend.llm.prompts import PromptSpec, revision_spec
 
 INTERVIEW_PROMPT = PromptSpec(
     name="interview",
@@ -26,3 +26,7 @@ INTERVIEW_PROMPT = PromptSpec(
         "profile. Never repeat a question."
     ),
 )
+
+# M7 (decision D1): used only when Critic feedback is present; INTERVIEW_PROMPT itself
+# is unchanged, so requests without feedback are identical to before.
+INTERVIEW_REVISION_PROMPT = revision_spec(INTERVIEW_PROMPT, "1.2.0")

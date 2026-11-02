@@ -33,6 +33,8 @@ def test_ready_without_api_key_is_not_ready(start_app, fake_groq) -> None:
         "config_valid": True,
         "groq_api_key_configured": False,
         "embedding_model_loaded": True,  # M5 component
+        "report_store_ready": True,  # M7 component
+        "analysis_graph_compiled": True,  # M7 component
     }
     assert body["scoring"] == {"ats_composite": "not_calibrated", "calibration_version": None}
     groq = body["upstream"]["groq"]
@@ -52,6 +54,8 @@ def test_ready_with_key_and_available_upstream(start_app, fake_groq) -> None:
         "config_valid": True,
         "groq_api_key_configured": True,
         "embedding_model_loaded": True,  # M5 component
+        "report_store_ready": True,  # M7 component
+        "analysis_graph_compiled": True,  # M7 component
     }
     assert body["scoring"] == {"ats_composite": "not_calibrated", "calibration_version": None}
     groq = body["upstream"]["groq"]

@@ -21,7 +21,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from backend import __version__
-from backend.api.routes import health, match, parse
+from backend.api.routes import analyze, health, match, parse, report
 from backend.core.body_limit import BodySizeLimitMiddleware
 from backend.core.config import Settings, get_settings
 from backend.core.errors import UnhandledExceptionMiddleware, register_exception_handlers
@@ -32,15 +32,19 @@ from backend.core.logging import (
 )
 from backend.core.request_id import RequestIdMiddleware
 from backend.core.security_headers import SecurityHeadersMiddleware
+from backend.graph.analysis import AnalysisDeps, AnalysisWorkflow, build_prompt_guard
 from backend.health.readiness import (
+    ANALYSIS_GRAPH_COMPILED,
     CONFIG_VALID,
     EMBEDDING_MODEL_LOADED,
     GROQ_API_KEY_CONFIGURED,
+    REPORT_STORE_READY,
     ReadinessRegistry,
 )
 from backend.health.upstream import GroqUpstreamMonitor
 from backend.llm.client import LLMClients
 from backend.scoring.embeddings import Embedder, EmbeddingService, load_sentence_transformer
+from backend.storage.report_store import ReportStore
 
 logger = logging.getLogger("backend.main")
 
@@ -75,6 +79,13 @@ def create_app(
     readiness.register(CONFIG_VALID, ready=True)  # Settings validated above.
     readiness.register(GROQ_API_KEY_CONFIGURED, ready=settings.groq_api_key_configured)
     readiness.register(EMBEDDING_MODEL_LOADED)
+    readiness.register(REPORT_STORE_READY)
+
+    report_store = ReportStore(
+        ttl_seconds=settings.report_ttl_seconds,
+        max_reports=settings.max_stored_reports,
+        sweep_interval_seconds=settings.report_sweep_interval_seconds,
+    )
 
     embeddings = EmbeddingService(embedder_factory or (lambda: load_sentence_transformer(settings)))
 
@@ -88,14 +99,30 @@ def create_app(
     )
     llm_clients = LLMClients(settings, http_client=llm_http_client, monitor=upstream_monitor)
 
+    # M7: the analysis workflow, compiled once (no checkpointer) and shared by requests.
+    analysis_workflow = AnalysisWorkflow(
+        AnalysisDeps(
+            settings=settings,
+            llm_clients=llm_clients,
+            embeddings=embeddings,
+            report_store=report_store,
+            prompt_guard=build_prompt_guard(settings, llm_clients, upstream_monitor),
+        )
+    )
+    readiness.register(ANALYSIS_GRAPH_COMPILED, ready=True)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         readiness.set_ready(EMBEDDING_MODEL_LOADED, await embeddings.load())
+        await report_store.start()
+        readiness.set_ready(REPORT_STORE_READY, report_store.running)
         await upstream_monitor.start()
         logger.info("application_started", extra={"component": "app"})
         try:
             yield
         finally:
+            readiness.set_ready(REPORT_STORE_READY, False)
+            await report_store.stop()
             await upstream_monitor.stop()
             await llm_clients.aclose()
             logger.info("application_stopped", extra={"component": "app"})
@@ -114,11 +141,15 @@ def create_app(
     app.state.upstream_monitor = upstream_monitor
     app.state.llm_clients = llm_clients
     app.state.embeddings = embeddings
+    app.state.report_store = report_store
+    app.state.analysis_workflow = analysis_workflow
 
     register_exception_handlers(app)
     app.include_router(health.router)
     app.include_router(parse.router)
     app.include_router(match.router)
+    app.include_router(analyze.router)
+    app.include_router(report.router)
 
     # The frontend is mounted last so that API routes always take precedence.
     if settings.frontend_dir.is_dir():

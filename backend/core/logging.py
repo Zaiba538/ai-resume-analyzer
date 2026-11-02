@@ -56,6 +56,7 @@ ALLOWED_FIELDS = frozenset(
         "timing_ms",
         "attempts",
         "critic_verdict",
+        "revisions",
         "security_flag_types",
     }
 )

@@ -75,6 +75,13 @@ class Settings(BaseSettings):
     # Reports and the Critic loop (decisions D4 and D6).
     report_ttl_seconds: int = Field(default=3600, ge=60, le=MAX_REPORT_TTL_SECONDS)
     max_revisions: int = Field(default=1, ge=0, le=3)
+    # M7 decision D4: overall deadline for one analysis workflow run.
+    analysis_deadline_seconds: float = Field(default=600.0, ge=1.0, le=3600.0)
+    # M7 report store: capacity (approved: 500) and the periodic expiry sweep.
+    max_stored_reports: int = Field(default=500, ge=1, le=10_000)
+    report_sweep_interval_seconds: float = Field(
+        default=60.0, ge=1.0, le=float(MAX_REPORT_TTL_SECONDS)
+    )
 
     # Upload validation (deterministic; the only layer that rejects requests).
     max_upload_bytes: int = Field(default=5 * 1024 * 1024, ge=1024, le=20 * 1024 * 1024)

@@ -48,7 +48,9 @@ class FakeGroqChat:
         self.requests.append(request)
         if not self.replies:
             raise AssertionError("FakeGroqChat: no scripted reply left")
-        reply = self.replies.popleft()
+        return self.respond(request, self.replies.popleft())
+
+    def respond(self, request: httpx.Request, reply: Reply) -> httpx.Response:
         if reply.exception is not None:
             raise reply.exception
         headers = {"retry-after-ms": "1", **reply.headers}
@@ -85,3 +87,52 @@ class FakeGroqChat:
 
     def client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(transport=httpx.MockTransport(self.handler))
+
+
+class RoutedFakeGroq(FakeGroqChat):
+    """Replies chosen by the request's agent prompt, not by arrival order.
+
+    For workflows whose agents run in parallel. Each route has its own reply
+    queue; Prompt Guard requests are recognised by model and answered with
+    ``guard_score``. ``routes`` records the route of every request in order.
+    """
+
+    PREFIXES = {
+        "resume": "You are a meticulous resume analyst.",
+        "interview": "You are an experienced technical interviewer.",
+        "skill_gap": "You are a careful career advisor.",
+        "critic": "You are a rigorous reviewer of AI-generated resume analysis.",
+    }
+
+    def __init__(self, guard_score: str = "0.01") -> None:
+        super().__init__()
+        self.guard_score = guard_score
+        self.queues: dict[str, deque[Reply]] = {name: deque() for name in self.PREFIXES}
+        self.routes: list[str] = []
+
+    def script(self, route: str, *replies: Reply) -> RoutedFakeGroq:
+        self.queues[route].extend(replies)
+        return self
+
+    @staticmethod
+    def route_of(body: dict[str, Any]) -> str:
+        if "prompt-guard" in body.get("model", ""):
+            return "prompt_guard"
+        system = body["messages"][0]["content"]
+        for name, prefix in RoutedFakeGroq.PREFIXES.items():
+            if system.startswith(prefix):
+                return name
+        raise AssertionError("RoutedFakeGroq: unrecognised request")
+
+    def bodies_for(self, route: str) -> list[dict[str, Any]]:
+        return [body for body, name in zip(self.bodies, self.routes, strict=True) if name == route]
+
+    def handler(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        route = self.route_of(json.loads(request.content))
+        self.routes.append(route)
+        if route == "prompt_guard":
+            return self.respond(request, Reply(content=self.guard_score))
+        if not self.queues[route]:
+            raise AssertionError(f"RoutedFakeGroq: no scripted reply left for {route}")
+        return self.respond(request, self.queues[route].popleft())

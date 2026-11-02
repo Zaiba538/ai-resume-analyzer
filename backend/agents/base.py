@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,6 +11,7 @@ from pydantic import BaseModel, ValidationError
 
 from backend.core.errors import AppError
 from backend.llm.structured import StructuredResult, Usage
+from backend.schemas.critic import MAX_CRITIC_ISSUES, AgentName, CriticIssue
 from backend.schemas.resume import ResumeProfile
 from backend.schemas.security import SecurityFlag
 from backend.security.sanitize import sanitize_text
@@ -87,3 +90,44 @@ def clean_profile(profile: ResumeProfile) -> ResumeProfile:
         return ResumeProfile.model_validate(_sanitize_strings(profile.model_dump(mode="python")))
     except ValidationError as exc:
         raise AgentInputError("The profile is invalid.") from exc
+
+
+def clean_feedback(feedback: Sequence[CriticIssue] | None, agent: AgentName) -> str | None:
+    """Critic feedback for ``agent`` as JSON for a ``critic_feedback`` block, or ``None``.
+
+    M7 (decision D1). ``feedback`` holds published Critic issues; only those
+    whose ``agent`` is ``agent`` are kept, so one agent's feedback never reaches
+    another agent. Each kept issue is rebuilt from its four published fields,
+    re-sanitised (M3) and re-validated. Malformed or oversized feedback is
+    rejected before any LLM call, without echoing its content. ``None`` (no
+    feedback, or none for this agent) means the agent runs exactly as without
+    feedback.
+    """
+    if not feedback:
+        return None
+    if isinstance(feedback, str | bytes) or not isinstance(feedback, Sequence):
+        raise AgentInputError("Critic feedback must be a list of Critic issues.")
+    if len(feedback) > MAX_CRITIC_ISSUES:
+        raise AgentInputError(f"Critic feedback is limited to {MAX_CRITIC_ISSUES} issues.")
+    relevant: list[dict[str, str]] = []
+    for item in feedback:
+        if not isinstance(item, CriticIssue):
+            raise AgentInputError("Critic feedback must contain Critic issues only.")
+        if item.agent != agent:
+            continue
+        fields = {
+            "agent": item.agent,
+            "field": item.field,
+            "severity": item.severity,
+            "message": item.message,
+        }
+        try:
+            issue = CriticIssue.model_validate(_sanitize_strings(fields))
+        except ValidationError as exc:
+            raise AgentInputError("Critic feedback is invalid.") from exc
+        relevant.append(
+            {"field": issue.field, "severity": issue.severity, "message": issue.message}
+        )
+    if not relevant:
+        return None
+    return json.dumps(relevant, ensure_ascii=False)

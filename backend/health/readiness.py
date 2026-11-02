@@ -17,6 +17,8 @@ from threading import Lock
 CONFIG_VALID = "config_valid"
 GROQ_API_KEY_CONFIGURED = "groq_api_key_configured"
 EMBEDDING_MODEL_LOADED = "embedding_model_loaded"
+REPORT_STORE_READY = "report_store_ready"
+ANALYSIS_GRAPH_COMPILED = "analysis_graph_compiled"
 
 
 class ReadinessRegistry:

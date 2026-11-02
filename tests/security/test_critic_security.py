@@ -34,6 +34,7 @@ def test_agent_outputs_tag_is_registered_and_existing_tags_kept() -> None:
         "answer",
         "question",
         "agent_outputs",
+        "critic_feedback",  # M7 phase 3
     )
 
 

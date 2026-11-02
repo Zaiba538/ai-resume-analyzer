@@ -4,7 +4,7 @@ Uses the structured profile rather than the raw resume, as approved, which
 reduces tokens and keeps matching grounded in extracted skills.
 """
 
-from backend.llm.prompts import PromptSpec
+from backend.llm.prompts import PromptSpec, revision_spec
 
 SKILL_GAP_PROMPT = PromptSpec(
     name="skill_gap",
@@ -21,3 +21,7 @@ SKILL_GAP_PROMPT = PromptSpec(
         "inputs only; do not assume skills that are not evidenced."
     ),
 )
+
+# M7 (decision D1): used only when Critic feedback is present; SKILL_GAP_PROMPT itself
+# is unchanged, so requests without feedback are identical to before.
+SKILL_GAP_REVISION_PROMPT = revision_spec(SKILL_GAP_PROMPT, "1.1.0")

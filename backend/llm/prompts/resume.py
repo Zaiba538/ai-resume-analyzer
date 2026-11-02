@@ -1,6 +1,6 @@
 """Resume agent prompt: extract a structured profile (preserved legacy feature)."""
 
-from backend.llm.prompts import PromptSpec
+from backend.llm.prompts import PromptSpec, revision_spec
 
 RESUME_PROMPT = PromptSpec(
     name="resume",
@@ -20,3 +20,7 @@ RESUME_PROMPT = PromptSpec(
         "information. Keep the resume's language for names and titles."
     ),
 )
+
+# M7 (decision D1): used only when Critic feedback is present; RESUME_PROMPT itself
+# is unchanged, so requests without feedback are identical to before.
+RESUME_REVISION_PROMPT = revision_spec(RESUME_PROMPT, "1.1.0")
