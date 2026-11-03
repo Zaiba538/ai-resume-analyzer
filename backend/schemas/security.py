@@ -21,7 +21,8 @@ FlagType = Literal[
     "classifier",
     "unexpected_url",
 ]
-FlagSource = Literal["resume", "job_description", "answer", "llm_output"]
+# "question": a client-supplied interview question (M9, heuristic scan only).
+FlagSource = Literal["resume", "job_description", "answer", "question", "llm_output"]
 
 
 class SecurityFlag(BaseModel):

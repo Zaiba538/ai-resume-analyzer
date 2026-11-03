@@ -23,6 +23,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # Decision D6: derived report data may stay in server memory for at most one hour.
 MAX_REPORT_TTL_SECONDS = 3600
 
+# M9 decision Q7: bounds of the configurable answer length (characters, after sanitisation).
+MIN_ANSWER_CHARS_LIMIT = 200
+MAX_ANSWER_CHARS_LIMIT = 20_000
+
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 
 _MODEL_FIELDS = (
@@ -88,6 +92,14 @@ class Settings(BaseSettings):
     max_pdf_pages: int = Field(default=10, ge=1, le=100)
     max_extracted_chars: int = Field(default=50_000, ge=1_000, le=500_000)
     max_job_description_chars: int = Field(default=20_000, ge=500, le=100_000)
+
+    # M9 interview API (decision Q7): answer length and the overall deadline of each
+    # endpoint. A deadline bounds the whole request, including upstream retries.
+    max_answer_chars: int = Field(
+        default=5_000, ge=MIN_ANSWER_CHARS_LIMIT, le=MAX_ANSWER_CHARS_LIMIT
+    )
+    interview_deadline_seconds: float = Field(default=120.0, ge=1.0, le=600.0)
+    evaluation_deadline_seconds: float = Field(default=120.0, ge=1.0, le=600.0)
 
     # Embeddings for semantic similarity (loaded once at start-up). The revision
     # pins exact model files on the Hugging Face Hub; remote code is never run.

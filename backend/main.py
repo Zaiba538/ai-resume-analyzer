@@ -22,7 +22,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from backend import __version__
-from backend.api.routes import analyze, health, match, parse, report
+from backend.api.routes import analyze, health, interview, match, parse, report
 from backend.core.body_limit import BodySizeLimitMiddleware
 from backend.core.config import Settings, get_settings
 from backend.core.errors import UnhandledExceptionMiddleware, register_exception_handlers
@@ -34,6 +34,7 @@ from backend.core.logging import (
 from backend.core.request_id import RequestIdMiddleware
 from backend.core.security_headers import SecurityHeadersMiddleware
 from backend.graph.analysis import AnalysisDeps, AnalysisWorkflow, build_prompt_guard
+from backend.graph.evaluation import EvaluationDeps, EvaluationWorkflow
 from backend.health.readiness import (
     ANALYSIS_GRAPH_COMPILED,
     CONFIG_VALID,
@@ -47,6 +48,7 @@ from backend.health.upstream import GroqUpstreamMonitor
 from backend.llm.client import LLMClients
 from backend.reports.fonts import default_registry
 from backend.scoring.embeddings import Embedder, EmbeddingService, load_sentence_transformer
+from backend.services.interview import InterviewQuestionService
 from backend.storage.report_store import ReportStore
 
 logger = logging.getLogger("backend.main")
@@ -115,6 +117,21 @@ def create_app(
     )
     readiness.register(ANALYSIS_GRAPH_COMPILED, ready=True)
 
+    # M9: interview questions from a stored report, and the answer-evaluation graph
+    # (compiled once, no checkpointer). Both only read the report store. The
+    # evaluation graph has its own flag-only Prompt Guard classifier (D5, N1).
+    interview_service = InterviewQuestionService(
+        settings=settings, llm_clients=llm_clients, report_store=report_store
+    )
+    evaluation_workflow = EvaluationWorkflow(
+        EvaluationDeps(
+            settings=settings,
+            llm_clients=llm_clients,
+            report_store=report_store,
+            prompt_guard=build_prompt_guard(settings, llm_clients, upstream_monitor),
+        )
+    )
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         readiness.set_ready(EMBEDDING_MODEL_LOADED, await embeddings.load())
@@ -151,6 +168,8 @@ def create_app(
     app.state.embeddings = embeddings
     app.state.report_store = report_store
     app.state.analysis_workflow = analysis_workflow
+    app.state.interview_service = interview_service
+    app.state.evaluation_workflow = evaluation_workflow
 
     register_exception_handlers(app)
     app.include_router(health.router)
@@ -158,6 +177,7 @@ def create_app(
     app.include_router(match.router)
     app.include_router(analyze.router)
     app.include_router(report.router)
+    app.include_router(interview.router)
 
     # The frontend is mounted last so that API routes always take precedence.
     if settings.frontend_dir.is_dir():

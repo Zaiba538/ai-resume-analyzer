@@ -12,10 +12,12 @@ from fastapi import Depends, Request
 
 from backend.core.config import Settings
 from backend.graph.analysis import AnalysisWorkflow
+from backend.graph.evaluation import EvaluationWorkflow
 from backend.health.readiness import ReadinessRegistry
 from backend.health.upstream import GroqUpstreamMonitor
 from backend.llm.client import LLMClients
 from backend.scoring.embeddings import EmbeddingService
+from backend.services.interview import InterviewQuestionService
 from backend.storage.report_store import ReportStore
 
 
@@ -47,6 +49,14 @@ def get_analysis_workflow(request: Request) -> AnalysisWorkflow:
     return request.app.state.analysis_workflow
 
 
+def get_interview_service(request: Request) -> InterviewQuestionService:
+    return request.app.state.interview_service
+
+
+def get_evaluation_workflow(request: Request) -> EvaluationWorkflow:
+    return request.app.state.evaluation_workflow
+
+
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 LLMClientsDep = Annotated[LLMClients, Depends(get_llm_clients)]
 EmbeddingServiceDep = Annotated[EmbeddingService, Depends(get_embedding_service)]
@@ -54,3 +64,5 @@ ReadinessDep = Annotated[ReadinessRegistry, Depends(get_readiness)]
 UpstreamMonitorDep = Annotated[GroqUpstreamMonitor, Depends(get_upstream_monitor)]
 ReportStoreDep = Annotated[ReportStore, Depends(get_report_store)]
 AnalysisWorkflowDep = Annotated[AnalysisWorkflow, Depends(get_analysis_workflow)]
+InterviewServiceDep = Annotated[InterviewQuestionService, Depends(get_interview_service)]
+EvaluationWorkflowDep = Annotated[EvaluationWorkflow, Depends(get_evaluation_workflow)]
