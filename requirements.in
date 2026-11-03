@@ -43,8 +43,10 @@ scikit-learn==1.9.1
 pypdf==6.21.4
 python-docx==1.2.0
 
-# PDF report generation
-reportlab==5.1.0
+# PDF report generation. The shaping extra (HarfBuzz via uharfbuzz) is needed
+# to render Devanagari correctly with the bundled Noto Sans Devanagari fonts.
+reportlab[shaping]==5.1.0
+uharfbuzz==0.57.0
 
 # Rate limiting
 slowapi==0.1.10

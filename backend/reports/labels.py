@@ -1,0 +1,210 @@
+"""Canonical display labels for analysis reports (M8, decision D3).
+
+One source of truth for the wording of the PDF report, structured so the M11
+frontend can reuse it unchanged: ``LABELS`` maps a group name to a mapping of
+stable key to display text. Where a group mirrors a schema field or ``Literal``
+value (verdicts, severities, interview levels, security flag types, resume
+sections), its keys are exactly those values, so a report value is displayed
+with ``LABELS[group][value]``.
+
+Everything is immutable (read-only mappings) and plain strings only;
+``labels_as_dict()`` returns a JSON-serialisable copy. Labels are fixed English
+text without markup characters and never contain report content.
+
+Security flags are labelled by type only (decision D4); the matched content is
+never stored, so it cannot be displayed. The ATS score is shown as a status, not
+a number, while calibration is not approved.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from types import MappingProxyType
+
+LABELS_VERSION = 1
+
+LabelGroup = Mapping[str, str]
+
+
+def _group(*pairs: tuple[str, str]) -> LabelGroup:
+    """A read-only label group; duplicate keys are rejected, not silently merged."""
+    group: dict[str, str] = {}
+    for key, text in pairs:
+        if key in group:
+            raise ValueError(f"duplicate label key: {key}")
+        group[key] = text
+    return MappingProxyType(group)
+
+
+DOCUMENT = _group(
+    ("title", "Resume Analysis Report"),
+    ("generated_at", "Generated"),
+    ("expires_at", "Expires"),
+    ("page", "Page"),
+    ("of", "of"),
+)
+
+SECTIONS = _group(
+    ("resume_profile", "Resume Profile"),
+    ("interview_questions", "Interview Questions"),
+    ("match", "Job Match"),
+    ("baseline", "Baseline"),
+    ("ats_score", "ATS Score"),
+    ("skill_gap", "Skill Gaps and Recommendations"),
+    ("critic", "Quality Review"),
+    ("security", "Security Notices"),
+)
+
+PROFILE = _group(
+    ("skills", "Skills"),
+    ("education", "Education"),
+    ("experience", "Experience"),
+    ("projects", "Projects"),
+    ("certifications", "Certifications"),
+    ("qualification", "Qualification"),
+    ("institution", "Institution"),
+    ("year", "Year"),
+    ("organization", "Organization"),
+    ("role", "Role"),
+    ("period", "Period"),
+    ("highlights", "Highlights"),
+)
+
+INTERVIEW_LEVELS = _group(
+    ("beginner", "Beginner"),
+    ("intermediate", "Intermediate"),
+    ("advanced", "Advanced"),
+)
+
+INTERVIEW = _group(
+    ("question", "Question"),
+    ("topic", "Topic"),
+    ("rationale", "Why this question"),
+)
+
+METRICS = _group(
+    ("semantic_similarity", "Semantic similarity"),
+    ("semantic_similarity_note", "Embedding similarity; not a calibrated probability."),
+    ("skill_coverage", "Skill coverage"),
+    ("matched", "Matched skills"),
+    ("missing", "Missing skills"),
+    ("jd_skills_total", "Skills in job description"),
+    ("section_completeness", "Section completeness"),
+    ("present", "Sections present"),
+    ("absent", "Sections absent"),
+)
+
+BASELINE = _group(
+    ("tfidf_keyword_match", "TF-IDF keyword match (baseline)"),
+    ("tfidf_keyword_match_note", "Legacy keyword overlap, shown for comparison only."),
+)
+
+ATS = _group(
+    ("status", "Status"),
+    ("not_calibrated", "Not calibrated"),
+    ("not_calibrated_note", "No ATS score is shown until its calibration is approved."),
+)
+
+RESUME_SECTIONS = _group(
+    ("contact", "Contact"),
+    ("summary", "Summary"),
+    ("skills", "Skills"),
+    ("experience", "Experience"),
+    ("education", "Education"),
+    ("projects", "Projects"),
+    ("certifications", "Certifications"),
+)
+
+SKILL_GAP = _group(
+    ("matching_skills", "Matching skills"),
+    ("missing_skills", "Missing skills"),
+    ("recommendations", "Recommendations"),
+)
+
+CRITIC = _group(
+    ("verdict", "Verdict"),
+    ("issues", "Issues"),
+    ("severity", "Severity"),
+    ("agent", "Area"),
+    ("message", "Issue"),
+    ("revisions", "Revisions"),
+)
+
+CRITIC_VERDICTS = _group(
+    ("approve", "Approved"),
+    ("revise", "Needs revision"),
+    ("flagged", "Flagged"),
+)
+
+SEVERITIES = _group(
+    ("low", "Low"),
+    ("medium", "Medium"),
+    ("high", "High"),
+)
+
+AGENTS = _group(
+    ("resume", "Resume profile"),
+    ("interview", "Interview questions"),
+    ("skill_gap", "Skill gap"),
+)
+
+SECURITY_FLAGS = _group(
+    ("hidden_unicode", "Hidden Unicode characters"),
+    ("instruction_override", "Instruction override attempt"),
+    ("role_impersonation", "Role impersonation attempt"),
+    ("prompt_exfiltration", "Prompt exfiltration attempt"),
+    ("score_manipulation", "Score manipulation attempt"),
+    ("delimiter_injection", "Delimiter injection attempt"),
+    ("classifier", "Prompt-injection classifier alert"),
+    ("unexpected_url", "Unexpected URL in generated output"),
+)
+
+MESSAGES = _group(
+    (
+        "disclaimer",
+        "This report was generated by AI and has not been verified. Check it before relying on it.",
+    ),
+    (
+        "no_job_description",
+        "No job description was provided, so job match and skill gap results are not included.",
+    ),
+    (
+        "security_notice",
+        "Possible prompt-injection or hidden content was detected. "
+        "Only the type of each finding is shown.",
+    ),
+    ("no_security_flags", "No security notices."),
+    ("no_issues", "No issues reported."),
+    ("none", "None"),
+)
+
+LABELS: Mapping[str, LabelGroup] = MappingProxyType(
+    {
+        "document": DOCUMENT,
+        "sections": SECTIONS,
+        "profile": PROFILE,
+        "interview_levels": INTERVIEW_LEVELS,
+        "interview": INTERVIEW,
+        "metrics": METRICS,
+        "baseline": BASELINE,
+        "ats": ATS,
+        "resume_sections": RESUME_SECTIONS,
+        "skill_gap": SKILL_GAP,
+        "critic": CRITIC,
+        "critic_verdicts": CRITIC_VERDICTS,
+        "severities": SEVERITIES,
+        "agents": AGENTS,
+        "security_flags": SECURITY_FLAGS,
+        "messages": MESSAGES,
+    }
+)
+
+
+def label(group: str, key: str) -> str:
+    """The display text for ``key`` in ``group``; unknown names raise ``KeyError``."""
+    return LABELS[group][key]
+
+
+def labels_as_dict() -> dict[str, dict[str, str]]:
+    """A JSON-serialisable copy of every label group (for example for M11)."""
+    return {name: dict(group) for name, group in LABELS.items()}

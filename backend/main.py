@@ -12,6 +12,7 @@ RequestId -> SecurityHeaders -> AccessLog -> BodySizeLimit -> UnhandledException
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -38,11 +39,13 @@ from backend.health.readiness import (
     CONFIG_VALID,
     EMBEDDING_MODEL_LOADED,
     GROQ_API_KEY_CONFIGURED,
+    PDF_RENDERER_READY,
     REPORT_STORE_READY,
     ReadinessRegistry,
 )
 from backend.health.upstream import GroqUpstreamMonitor
 from backend.llm.client import LLMClients
+from backend.reports.fonts import default_registry
 from backend.scoring.embeddings import Embedder, EmbeddingService, load_sentence_transformer
 from backend.storage.report_store import ReportStore
 
@@ -80,6 +83,7 @@ def create_app(
     readiness.register(GROQ_API_KEY_CONFIGURED, ready=settings.groq_api_key_configured)
     readiness.register(EMBEDDING_MODEL_LOADED)
     readiness.register(REPORT_STORE_READY)
+    readiness.register(PDF_RENDERER_READY)
 
     report_store = ReportStore(
         ttl_seconds=settings.report_ttl_seconds,
@@ -114,6 +118,10 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         readiness.set_ready(EMBEDDING_MODEL_LOADED, await embeddings.load())
+        # M8 D7: register the PDF fonts once per process. Registration reads and
+        # verifies the font files, so it runs off the event loop; it never raises.
+        fonts = default_registry()
+        readiness.set_ready(PDF_RENDERER_READY, await asyncio.to_thread(fonts.register))
         await report_store.start()
         readiness.set_ready(REPORT_STORE_READY, report_store.running)
         await upstream_monitor.start()

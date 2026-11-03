@@ -1806,6 +1806,30 @@ typing-inspection==0.4.4 ; (platform_machine == 'x86_64' and sys_platform == 'li
     #   fastapi
     #   pydantic
     #   pydantic-settings
+uharfbuzz==0.57.0 ; (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32') \
+    --hash=sha256:0346f79243dea09d4a24a9645d3f84f5c7d59d4d6f7b4ebce984468744de4543 \
+    --hash=sha256:0448bc4ab92a9c65a8526fa743452c2313314d1d9675d308cf989da99ace8e04 \
+    --hash=sha256:292a7af09e9a4691f0f7b46a88359531b60e25aadfd8fd27c0fc033f236960ae \
+    --hash=sha256:293f38debeb78498e80626f04158563e3cddc7aa49e223d55d7615b285a5ad17 \
+    --hash=sha256:347dbbda4db6f76aa0b330e34c72ecfc576211afc9f946a1c89121afac472970 \
+    --hash=sha256:3dcdd1a5425d024f0d1422974da72eb184ece4577a0ea97e3130253ae98fab7f \
+    --hash=sha256:430b78efc0cff3365461ff79e0d0a944cda17253171d5a4f8cf4615ebde08541 \
+    --hash=sha256:52ad5e55b9d3a1cfccfa2f1b93de92149134d51dbeecb9434ec1fe0de5280171 \
+    --hash=sha256:55136df18a9dd09fec36d1ceb77965f3108de6d86c338b3825feedb0730d84b7 \
+    --hash=sha256:722ad87e8c1d497f221e4ca15a2d6c7131c796fc4b8d337735f3ea7322d5bd47 \
+    --hash=sha256:72b5251e81fbde5e398ecd5d618c521be8cfde42f281d569e47ab9c9a5e669fe \
+    --hash=sha256:7467349983fd8a8efb44ac9cfcff646e889c16f0bb021d9be2d67e36cceeeace \
+    --hash=sha256:90c3a1c47fcd12f3956766c885b4e5a0e5cfbf1344b2d1aaf6ee6f897bcc87eb \
+    --hash=sha256:9408a4398fc2d13f9039e8dff9d7107c4797bf890af157e0e3a9181c2ecd7e84 \
+    --hash=sha256:b0a5fbd70e1f36c608a52dafce242cf18b471a62a2e3d21e4fafd82e0e7770c9 \
+    --hash=sha256:ca65ec33b74bccf509dcf8974618faf9376eeecea3cb3e74a087f02d8cf9207a \
+    --hash=sha256:d536eaf8161af2fd48c9842397e9cbd6aa7c4a12e6f5c820aa40f49cb4445302 \
+    --hash=sha256:df03ec62e172d10d65a50a0504905e579309f6fce3417f9678852dd4cbd52563 \
+    --hash=sha256:e3901acbed68995516ba272bb3ff3777adb07d832b328941da7915dd6cd145fd \
+    --hash=sha256:ee112dc87b4e78a8c2d8e475d214d29788aacce0daa0192806d4778b671dc658
+    # via
+    #   -r requirements.in
+    #   reportlab
 urllib3==2.8.0 ; (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32') \
     --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3 \
     --hash=sha256:63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63
