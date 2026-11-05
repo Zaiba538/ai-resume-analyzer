@@ -402,3 +402,72 @@ def test_configured_job_description_limit_is_honoured(make_client) -> None:
         user = body["messages"][1]["content"]
         block = user.split("<job_description>\n", 1)[1].split("\n</job_description>", 1)[0]
         assert block == job
+
+
+# --- English-only check (language validation) -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("sample", "loc"),
+    [
+        ("hindi_resume_pdf", "resume"),
+        ("marathi_resume_docx", "resume"),
+        ("hindi_jd", "job_description"),
+        ("marathi_jd", "job_description"),
+        ("short_hindi_jd", "job_description"),
+        ("both", "resume"),  # the resume is checked first, as before
+    ],
+)
+def test_non_english_input_is_rejected_before_any_llm_or_embedding_call(
+    make_client, captured_logs, sample, loc
+) -> None:
+    from tests.unit.test_language import (
+        HINDI_JD,
+        HINDI_RESUME_LINES,
+        JD_MESSAGE,
+        MARATHI_JD,
+        MARATHI_RESUME_LINES,
+        RESUME_MESSAGE,
+        SHORT_HINDI_JD,
+        make_devanagari_pdf,
+    )
+
+    logging.getLogger("backend").setLevel(logging.INFO)
+    data, filename, job = {
+        "hindi_resume_pdf": (make_devanagari_pdf(HINDI_RESUME_LINES), "cv.pdf", JOB),
+        "marathi_resume_docx": (make_docx(MARATHI_RESUME_LINES), "cv.docx", JOB),
+        "hindi_jd": (PDF, "cv.pdf", HINDI_JD),
+        "marathi_jd": (DOCX, "cv.docx", f"{MARATHI_JD} {CANARY}"),
+        "short_hindi_jd": (PDF, "cv.pdf", SHORT_HINDI_JD),
+        "both": (make_docx(HINDI_RESUME_LINES), "cv.docx", MARATHI_JD),
+    }[sample]
+    routed = scripted(NO_ISSUES)
+    client = make_client(routed)
+    response = post(client, data, filename, job_description=job, include_preview="true")
+    message = RESUME_MESSAGE if loc == "resume" else JD_MESSAGE
+    assert error(response) == (422, "unsupported_language", message)
+    body = response.json()["error"]
+    assert body["request_id"] == response.headers["X-Request-ID"]
+    assert body["details"] == [{"loc": [loc], "type": "unsupported_language", "msg": message}]
+    assert routed.requests == []  # no agent, Critic or Prompt Guard call
+    embedder = client.app.state.embeddings.get()
+    assert (embedder.encode_calls, embedder.chunk_calls) == (0, 0)
+    assert client.app.state.report_store._reports == {}
+    assert client.app.state.analyze_gate.in_flight == 0  # the slot was released
+    assert post(client).status_code == 200  # and the next analysis can take it
+    (rejected,) = captured_logs.events("unsupported_language")
+    assert rejected["component"] == loc
+    assert CANARY not in captured_logs.text
+    assert not any("\u0900" <= ch <= "\u097f" for ch in captured_logs.text)
+
+
+def test_english_resume_with_devanagari_is_analysed(make_client) -> None:
+    from tests.unit.test_language import LANGUAGES_LINE
+
+    routed = scripted(NO_ISSUES)
+    client = make_client(routed)
+    # The scripted model replies describe RESUME, so the English content stays RESUME's.
+    data = make_docx([LINES[0], "प्रिया देशपांडे, पुणे, महाराष्ट्र", *LINES[1:], LANGUAGES_LINE])
+    response = post(client, data, "cv.docx", job_description=f"{JOB} Office: पुणे.")
+    assert response.status_code == 200, response.text
+    assert response.json()["critic"]["verdict"] == "approve"

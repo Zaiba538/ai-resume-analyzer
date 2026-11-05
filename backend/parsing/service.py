@@ -1,4 +1,4 @@
-"""Document parsing pipeline: validate, extract, normalise, sanitise, enforce caps.
+"""Document parsing pipeline: validate, extract, normalise, sanitise, enforce caps and English.
 
 CPU-bound and synchronous; API handlers run it in a worker thread.
 """
@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 
 from backend.parsing.docx import extract_docx_text
 from backend.parsing.errors import DocumentTooLongError, NoExtractableTextError
+from backend.parsing.language import require_english
 from backend.parsing.pdf import extract_pdf_text
 from backend.parsing.validate import FileType, validate_upload
 from backend.security.sanitize import sanitize_text
@@ -81,6 +82,7 @@ def parse_document(filename: str, data: bytes, limits: ParseLimits) -> ParsedDoc
         raise NoExtractableTextError()
     if len(text) > limits.max_chars:
         raise DocumentTooLongError()
+    require_english(text, "resume")
 
     logger.info(
         "document_parsed",

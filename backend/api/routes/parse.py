@@ -32,7 +32,7 @@ _ERRORS = {
         400: "Malformed multipart body",
         413: "File or request too large",
         415: "Unsupported, mismatched or protected file type",
-        422: "Invalid upload, unreadable document or limits exceeded",
+        422: "Invalid upload, unreadable document, limits exceeded or unsupported language",
     }.items()
 }
 

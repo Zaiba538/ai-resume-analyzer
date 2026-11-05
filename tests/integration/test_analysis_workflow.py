@@ -225,3 +225,32 @@ async def test_raw_text_reaches_agents_but_is_never_stored_or_logged(captured_lo
         assert word not in critic_user  # metrics never reach the Critic
     assert CANARY not in (await store.get(str(report.report_id))).model_dump_json()
     assert CANARY not in captured_logs.text and FAKE_API_KEY not in captured_logs.text
+
+
+# --- English-only check (language validation) -------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("resume", "job", "loc"),
+    [
+        ("hindi", None, "resume"),
+        ("marathi", JOB, "resume"),
+        (RESUME, "hindi", "job_description"),
+        (RESUME, "marathi", "job_description"),
+    ],
+)
+async def test_non_english_input_stops_the_workflow_before_any_call(resume, job, loc) -> None:
+    from backend.parsing.language import UnsupportedLanguageError
+    from tests.unit.test_language import HINDI_JD, HINDI_RESUME, MARATHI_JD, MARATHI_RESUME
+
+    resume = {"hindi": HINDI_RESUME, "marathi": MARATHI_RESUME}.get(resume, resume)
+    job = {"hindi": HINDI_JD, "marathi": MARATHI_JD}.get(job, job)
+    fake = scripted(NO_ISSUES)
+    workflow, store = await workflow_for(fake)
+    with pytest.raises(UnsupportedLanguageError) as excinfo:
+        await workflow.run(resume_text=resume, job_description=job)
+    assert excinfo.value.details[0].loc == [loc]
+    assert fake.routes == []  # no agent, Critic or Prompt Guard call
+    embedder = workflow._deps.embeddings.get()
+    assert (embedder.encode_calls, embedder.chunk_calls) == (0, 0)
+    assert await store.count() == 0

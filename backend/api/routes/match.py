@@ -60,7 +60,7 @@ _ERRORS = {
         400: "Malformed multipart body",
         413: "File or request too large",
         415: "Unsupported media type or file type",
-        422: "Invalid input, unreadable document or limits exceeded",
+        422: "Invalid input, unreadable document, limits exceeded or unsupported language",
         503: "Semantic similarity model not available",
     }.items()
 }

@@ -231,3 +231,86 @@ def test_documented_in_openapi(start_app) -> None:
     operation = start_app(api_docs_enabled=True).get("/openapi.json").json()["paths"][MATCH]["post"]
     assert {"multipart/form-data", "application/json"} <= set(operation["requestBody"]["content"])
     assert {"200", "415", "422", "503"} <= set(operation["responses"])
+
+
+# --- English-only check (language validation) -------------------------------------------------
+
+
+def _language_error(response, loc: str) -> None:
+    from tests.unit.test_language import JD_MESSAGE, RESUME_MESSAGE
+
+    message = RESUME_MESSAGE if loc == "resume" else JD_MESSAGE
+    error = _assert_error(response, 422, "unsupported_language")
+    assert error["message"] == message
+    assert error["details"] == [{"loc": [loc], "type": "unsupported_language", "msg": message}]
+
+
+@pytest.mark.parametrize("form", ["json", "file"])
+@pytest.mark.parametrize(
+    ("sample", "loc"),
+    [
+        ("hindi_resume", "resume"),
+        ("marathi_resume", "resume"),
+        ("hindi_jd", "job_description"),
+        ("marathi_jd", "job_description"),
+        ("short_hindi_jd", "job_description"),
+        ("both", "job_description"),  # the job description is checked first, as before
+    ],
+)
+def test_non_english_input_is_rejected_before_any_embedding(start_app, form, sample, loc) -> None:
+    from tests.unit.test_language import (
+        ENGLISH_JD,
+        ENGLISH_RESUME,
+        HINDI_JD,
+        HINDI_RESUME,
+        HINDI_RESUME_LINES,
+        MARATHI_JD,
+        MARATHI_RESUME,
+        MARATHI_RESUME_LINES,
+        SHORT_HINDI_JD,
+        make_devanagari_pdf,
+    )
+
+    resume, job = {
+        "hindi_resume": (HINDI_RESUME, ENGLISH_JD),
+        "marathi_resume": (MARATHI_RESUME, ENGLISH_JD),
+        "hindi_jd": (ENGLISH_RESUME, HINDI_JD),
+        "marathi_jd": (ENGLISH_RESUME, MARATHI_JD),
+        "short_hindi_jd": (ENGLISH_RESUME, SHORT_HINDI_JD),
+        "both": (MARATHI_RESUME, HINDI_JD),
+    }[sample]
+    factory = CountingFactory()
+    client = start_app(embedder_factory=factory)
+    if form == "json":
+        response = _json(client, resume=resume, job=job)
+    else:
+        lines = {HINDI_RESUME: HINDI_RESUME_LINES, MARATHI_RESUME: MARATHI_RESUME_LINES}.get(
+            resume, resume.splitlines()
+        )
+        data = make_devanagari_pdf(list(lines))
+        response = _upload(client, data=data, job=job)
+    _language_error(response, loc)
+    assert factory.embedder.encode_calls == 0 and factory.embedder.chunk_calls == 0
+
+
+@pytest.mark.parametrize("form", ["json", "file"])
+def test_english_with_devanagari_is_matched_as_before(start_app, form) -> None:
+    from tests.unit.test_language import (
+        DEVANAGARI_NAME_ADDRESS_LINES,
+        ENGLISH_JD_WITH_DEVANAGARI_CITY,
+        ENGLISH_WITH_DEVANAGARI,
+        LANGUAGES_LINE,
+    )
+
+    client = start_app()
+    if form == "json":
+        response = _json(
+            client, resume=ENGLISH_WITH_DEVANAGARI, job=ENGLISH_JD_WITH_DEVANAGARI_CITY
+        )
+    else:
+        data = make_docx([*DEVANAGARI_NAME_ADDRESS_LINES, LANGUAGES_LINE])
+        response = _upload(client, "cv.docx", data, job=ENGLISH_JD_WITH_DEVANAGARI_CITY)
+    assert response.status_code == 200, response.text
+    assert {"Python", "Docker", "AWS"} <= set(
+        response.json()["metrics"]["skill_coverage"]["matched"]
+    )

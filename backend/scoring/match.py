@@ -5,7 +5,8 @@ Extracted unchanged from ``backend.api.routes.match`` (M7, decision D8) so that
 Nothing here depends on FastAPI request or response objects.
 
 * ``clean_job_description`` / ``clean_resume_text``: M3 sanitisation, M2 text
-  normalisation and the configured length caps, raising typed 422 errors.
+  normalisation, the configured length caps and the English-only check, raising
+  typed 422 errors.
 * ``compute_match``: semantic similarity, skill coverage, section completeness,
   the TF-IDF baseline and the ATS gate (always ``not_calibrated``).
 """
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 from backend.core.config import Settings
 from backend.core.errors import AppError
+from backend.parsing.language import require_english
 from backend.parsing.service import normalise_text
 from backend.schemas.match import (
     Baseline,
@@ -72,6 +74,7 @@ def clean_job_description(text: str | None, settings: Settings) -> str:
     cleaned = normalise_text(cleaned)
     if not cleaned:
         raise EmptyJobDescriptionError()
+    require_english(cleaned, "job_description")
     return cleaned
 
 
@@ -81,6 +84,7 @@ def clean_resume_text(text: str, settings: Settings) -> str:
         raise EmptyResumeTextError()
     if len(cleaned) > settings.max_extracted_chars:
         raise ResumeTextTooLongError()
+    require_english(cleaned, "resume")
     return cleaned
 
 

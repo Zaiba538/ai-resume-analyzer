@@ -53,7 +53,10 @@ _ERRORS = {
         400: "Malformed multipart body",
         413: "File or request too large",
         415: "Not multipart, or an unsupported, mismatched or protected file type",
-        422: "Invalid upload or job description, unreadable document or limits exceeded",
+        422: (
+            "Invalid upload or job description, unreadable document, limits exceeded "
+            "or unsupported language"
+        ),
         502: "Upstream LLM error or invalid model output",
         503: "LLM not configured, model unavailable, upstream rate limit or report store full",
         504: "Upstream timeout or analysis deadline exceeded",

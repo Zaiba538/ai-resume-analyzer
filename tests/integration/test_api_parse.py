@@ -190,3 +190,51 @@ def test_parse_documented_in_openapi(start_app) -> None:
     operation = schema["paths"]["/api/v1/parse"]["post"]
     assert "multipart/form-data" in operation["requestBody"]["content"]
     assert {"200", "413", "415", "422"} <= set(operation["responses"])
+
+
+# --- English-only check (language validation) -------------------------------------------------
+
+
+def _language_samples():
+    from tests.unit.test_language import (
+        HINDI_RESUME_LINES,
+        MARATHI_RESUME_LINES,
+        make_devanagari_pdf,
+    )
+
+    return {
+        "hindi_docx": ("cv.docx", make_docx(HINDI_RESUME_LINES)),
+        "marathi_pdf": ("cv.pdf", make_devanagari_pdf(MARATHI_RESUME_LINES)),
+        "hindi_pdf": ("cv.pdf", make_devanagari_pdf(HINDI_RESUME_LINES)),
+        "marathi_docx": ("cv.docx", make_docx(MARATHI_RESUME_LINES)),
+    }
+
+
+@pytest.mark.parametrize("sample", ["hindi_docx", "marathi_pdf", "hindi_pdf", "marathi_docx"])
+def test_non_english_resume_is_rejected_with_unsupported_language(start_app, sample) -> None:
+    from tests.unit.test_language import RESUME_MESSAGE
+
+    filename, data = _language_samples()[sample]
+    response = _upload(start_app(), filename, data, include_preview="true")
+    _assert_error(response, 422, "unsupported_language")
+    error = response.json()["error"]
+    assert error["message"] == RESUME_MESSAGE
+    assert error["details"] == [
+        {"loc": ["resume"], "type": "unsupported_language", "msg": RESUME_MESSAGE}
+    ]
+    assert "पायथन" not in response.text  # nothing of the document is echoed
+
+
+def test_english_resume_with_devanagari_is_accepted(start_app) -> None:
+    from tests.unit.test_language import DEVANAGARI_NAME_ADDRESS_LINES, LANGUAGES_LINE
+
+    lines = [*DEVANAGARI_NAME_ADDRESS_LINES, LANGUAGES_LINE]
+    body = _upload(start_app(), "cv.docx", make_docx(lines), include_preview="true").json()
+    assert body["preview"] == "\n".join(lines)
+    assert body["sections"]["skills"] and body["sections"]["education"]
+
+
+@pytest.mark.parametrize("path", ["/api/v1/parse", "/api/v1/match", "/api/v1/analyze"])
+def test_openapi_documents_the_language_error(start_app, path: str) -> None:
+    responses = start_app().app.openapi()["paths"][path]["post"]["responses"]
+    assert "unsupported language" in responses["422"]["description"]

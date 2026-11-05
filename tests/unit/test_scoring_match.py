@@ -18,10 +18,21 @@ from backend.core.config import Settings
 from backend.scoring.match import clean_job_description, clean_resume_text, compute_match
 from tests.fixtures.documents import SYNTHETIC_RESUME_LINES
 from tests.fixtures.embeddings import FakeEmbedder
+from tests.unit.test_language import (
+    BILINGUAL_RESUME,
+    ENGLISH_JD_WITH_DEVANAGARI_CITY,
+    ENGLISH_WITH_DEVANAGARI,
+    HINDI_JD,
+    HINDI_RESUME,
+    MARATHI_JD,
+    MARATHI_RESUME,
+    SHORT_HINDI_JD,
+)
 
 SETTINGS = Settings(_env_file=None)
 SMALL = Settings(_env_file=None, max_job_description_chars=500, max_extracted_chars=1000)
 RESUME = "\n".join(SYNTHETIC_RESUME_LINES)
+UNSUPPORTED = ("UnsupportedLanguageError", 422, "unsupported_language")
 NOT_CALIBRATED = {
     "status": "not_calibrated",
     "score": None,
@@ -148,6 +159,24 @@ def test_ats_gate_is_always_not_calibrated() -> None:
             SMALL,
             ("ResumeTextTooLongError", 422, "document_too_long"),
         ),
+        # English-only check: after every existing check, so their errors keep precedence.
+        (clean_resume_text, HINDI_RESUME, SETTINGS, UNSUPPORTED),
+        (clean_resume_text, MARATHI_RESUME, SETTINGS, UNSUPPORTED),
+        (clean_job_description, HINDI_JD, SETTINGS, UNSUPPORTED),
+        (clean_job_description, MARATHI_JD, SETTINGS, UNSUPPORTED),
+        (clean_job_description, SHORT_HINDI_JD, SETTINGS, UNSUPPORTED),
+        (
+            clean_resume_text,
+            HINDI_RESUME * 20,
+            SMALL,
+            ("ResumeTextTooLongError", 422, "document_too_long"),
+        ),
+        (
+            clean_job_description,
+            MARATHI_JD * 5,
+            SMALL,
+            ("JobDescriptionTooLongError", 422, "job_description_too_long"),
+        ),
     ],
 )
 def test_clean_helpers_raise_the_original_typed_errors(fn, text, settings, expected) -> None:
@@ -169,6 +198,14 @@ def test_clean_helpers_raise_the_original_typed_errors(fn, text, settings, expec
         (clean_job_description, "x" * 500, SMALL, "x" * 500),  # exactly at the limit
         (clean_resume_text, "A" + chr(0xA0) + "B  \n\n\n\nC", SETTINGS, "A B\n\nC"),
         (clean_resume_text, "y" * 1000, SMALL, "y" * 1000),
+        (clean_resume_text, ENGLISH_WITH_DEVANAGARI, SETTINGS, ENGLISH_WITH_DEVANAGARI),
+        (clean_resume_text, BILINGUAL_RESUME, SETTINGS, BILINGUAL_RESUME),
+        (
+            clean_job_description,
+            ENGLISH_JD_WITH_DEVANAGARI_CITY,
+            SETTINGS,
+            ENGLISH_JD_WITH_DEVANAGARI_CITY,
+        ),
     ],
 )
 def test_clean_helpers_return_the_original_cleaned_text(fn, text, settings, expected) -> None:
@@ -237,3 +274,15 @@ def test_scoring_functions_take_no_request_or_response_objects() -> None:
         for parameter in inspect.signature(fn).parameters.values():
             annotation = str(parameter.annotation)
             assert "Request" not in annotation and "Response" not in annotation, fn.__name__
+
+
+def test_the_language_error_names_the_rejected_input() -> None:
+    from backend.parsing.language import UnsupportedLanguageError
+
+    for fn, text, loc in (
+        (clean_resume_text, HINDI_RESUME, ["resume"]),
+        (clean_job_description, MARATHI_JD, ["job_description"]),
+    ):
+        with pytest.raises(UnsupportedLanguageError) as excinfo:
+            fn(text, SETTINGS)
+        assert excinfo.value.details[0].loc == loc

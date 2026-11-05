@@ -87,3 +87,41 @@ def test_parse_bool_field(value: str | None, expected: bool) -> None:
 def test_parse_bool_field_rejects_garbage(value: str) -> None:
     with pytest.raises(InvalidFieldError):
         parse_bool_field(value)
+
+
+# --- English-only check (language validation) -------------------------------------------------
+
+
+def test_english_resume_with_devanagari_is_parsed_unchanged() -> None:
+    from tests.unit.test_language import DEVANAGARI_NAME_ADDRESS_LINES, LANGUAGES_LINE
+
+    lines = [*DEVANAGARI_NAME_ADDRESS_LINES, LANGUAGES_LINE]
+    parsed = parse_document("cv.docx", make_docx(lines), LIMITS)
+    assert parsed.text == "\n".join(lines)
+
+
+@pytest.mark.parametrize("kind", ["docx", "pdf"])
+@pytest.mark.parametrize("sample", ["hindi", "marathi"])
+def test_hindi_and_marathi_resumes_are_rejected(kind: str, sample: str) -> None:
+    from backend.parsing.language import UnsupportedLanguageError
+    from tests.unit.test_language import (
+        HINDI_RESUME_LINES,
+        MARATHI_RESUME_LINES,
+        make_devanagari_pdf,
+    )
+
+    lines = HINDI_RESUME_LINES if sample == "hindi" else MARATHI_RESUME_LINES
+    data = make_docx(lines) if kind == "docx" else make_devanagari_pdf(lines)
+    with pytest.raises(UnsupportedLanguageError) as excinfo:
+        parse_document(f"cv.{kind}", data, LIMITS)
+    assert excinfo.value.details[0].loc == ["resume"]
+
+
+def test_existing_errors_take_precedence_over_the_language_check() -> None:
+    from tests.unit.test_language import HINDI_RESUME_LINES
+
+    small = ParseLimits(max_bytes=LIMITS.max_bytes, max_pages=10, max_chars=20)
+    with pytest.raises(DocumentTooLongError):
+        parse_document("cv.docx", make_docx(HINDI_RESUME_LINES), small)
+    with pytest.raises(NoExtractableTextError):
+        parse_document("cv.pdf", make_image_only_pdf(), LIMITS)
