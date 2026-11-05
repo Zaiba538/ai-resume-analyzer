@@ -101,3 +101,95 @@ def test_settings_are_immutable(make_settings) -> None:
     settings = make_settings()
     with pytest.raises(ValidationError):
         settings.report_ttl_seconds = 10  # type: ignore[misc]
+
+
+# --- M10 rate limiting -----------------------------------------------------------------
+
+RATE_LIMIT_DEFAULTS = {
+    "rate_limit_analyze": "5/minute;30/hour",
+    "rate_limit_analyze_global": "20/minute",
+    "rate_limit_interview_questions": "10/minute;60/hour",
+    "rate_limit_interview_evaluate": "20/minute;200/hour",
+    "rate_limit_interview_global": "60/minute",
+    "rate_limit_match": "30/minute",
+    "rate_limit_parse": "30/minute",
+    "rate_limit_report": "60/minute",
+    "rate_limit_report_pdf": "20/minute",
+}
+
+
+def test_rate_limit_defaults_match_approved_decisions() -> None:
+    # Real defaults, not make_settings (which turns rate limiting off for app tests).
+    settings = Settings(_env_file=None)
+    assert settings.rate_limit_enabled is True
+    for name, value in RATE_LIMIT_DEFAULTS.items():
+        assert getattr(settings, name) == value
+    assert settings.rate_limit_max_tracked_keys == 10_000
+    assert settings.analyze_max_concurrent == 2
+
+
+def test_rate_limits_load_from_environment(monkeypatch) -> None:
+    monkeypatch.setenv("RATE_LIMIT_ENABLED", "false")
+    monkeypatch.setenv("RATE_LIMIT_ANALYZE", " 2/minute; 10/hour ")
+    monkeypatch.setenv("RATE_LIMIT_MAX_TRACKED_KEYS", "500")
+    monkeypatch.setenv("ANALYZE_MAX_CONCURRENT", "1")
+    settings = Settings(_env_file=None)
+    assert settings.rate_limit_enabled is False
+    assert settings.rate_limit_analyze == "2/minute; 10/hour"
+    assert settings.rate_limit_max_tracked_keys == 500
+    assert settings.analyze_max_concurrent == 1
+
+
+@pytest.mark.parametrize("name", sorted(RATE_LIMIT_DEFAULTS))
+@pytest.mark.parametrize(
+    "value", ["", "often", "0/minute", "501/minute", "1/minute;2/minute", "1/2 days"]
+)
+def test_invalid_rate_limits_rejected(make_settings, name: str, value: str) -> None:
+    with pytest.raises(ValidationError):
+        make_settings(**{name: value})
+
+
+@pytest.mark.parametrize("value", [99, 25_001, 1_000_000, 0])
+def test_rate_limit_capacity_bounds(make_settings, value: int) -> None:
+    with pytest.raises(ValidationError):
+        make_settings(rate_limit_max_tracked_keys=value)
+
+
+@pytest.mark.parametrize("value", [0, 9])
+def test_analyze_concurrency_bounds(make_settings, value: int) -> None:
+    with pytest.raises(ValidationError):
+        make_settings(analyze_max_concurrent=value)
+
+
+@pytest.mark.parametrize("value", [100, 25_000])
+def test_rate_limit_capacity_bounds_are_inclusive(make_settings, value: int) -> None:
+    assert make_settings(rate_limit_max_tracked_keys=value).rate_limit_max_tracked_keys == value
+
+
+def test_largest_rate_limit_amount_is_accepted(make_settings) -> None:
+    assert make_settings(rate_limit_report="500/minute").rate_limit_report == "500/minute"
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("501/minute", "each amount must be between 1 and 500"),
+        ("often", "must use the limits notation"),
+        ("1/minute;2/minute", "must not repeat a window length"),
+    ],
+)
+def test_rate_limit_errors_use_fixed_messages(make_settings, value: str, message: str) -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        make_settings(rate_limit_match=value)
+    (error,) = excinfo.value.errors()
+    assert error["loc"] == ("rate_limit_match",)
+    assert error["msg"].startswith(f"Value error, {message}")
+    # Pydantic reports the rejected value separately; the message itself never
+    # repeats it, and limit strings carry no secrets.
+    assert value not in error["msg"]
+
+
+def test_app_test_settings_disable_rate_limiting_but_production_enables_it(make_settings) -> None:
+    assert make_settings().rate_limit_enabled is False
+    assert make_settings(rate_limit_enabled=True).rate_limit_enabled is True
+    assert Settings(_env_file=None).rate_limit_enabled is True

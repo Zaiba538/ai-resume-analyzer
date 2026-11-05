@@ -160,7 +160,7 @@ def test_other_request_bodies_are_unchanged(openapi) -> None:
     }
     assert openapi["paths"]["/api/v1/match"]["post"]["requestBody"] == MATCH_REQUEST_BODY
     evaluate = openapi["paths"][EVALUATE]["post"]
-    assert set(evaluate["responses"]) == {"200", "404", "415", "422", "502", "503", "504"}
+    assert set(evaluate["responses"]) == {"200", "404", "415", "422", "429", "502", "503", "504"}
     assert evaluate["responses"]["200"]["content"]["application/json"]["schema"] == {
         "$ref": "#/components/schemas/AnswerEvaluationResponse"
     }

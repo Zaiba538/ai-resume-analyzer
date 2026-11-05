@@ -503,7 +503,7 @@ def test_json_report_endpoint_is_unchanged(start_app) -> None:
     paths = client.get("/openapi.json").json()["paths"]
     assert {"/api/v1/report/{report_id}", "/api/v1/report/{report_id}/pdf"} <= set(paths)
     pdf_op = paths["/api/v1/report/{report_id}/pdf"]["get"]
-    assert set(pdf_op["responses"]) == {"200", "404", "422", "503", "504"}
+    assert set(pdf_op["responses"]) == {"200", "404", "422", "429", "503", "504"}
     assert "application/pdf" in pdf_op["responses"]["200"]["content"]
     assert set(paths["/api/v1/report/{report_id}"]) == {"get"}
 

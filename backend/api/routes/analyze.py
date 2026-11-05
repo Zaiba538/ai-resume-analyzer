@@ -16,6 +16,11 @@ an absent field means no job description. Failures use the existing typed
 errors: 4xx for input, 502/503 for upstream problems, 503 when the report
 store is full, 504 when the workflow deadline passes. No report is stored for
 a failed or timed-out run. Nothing here logs document or job text.
+
+Concurrency (M10, audit finding H1): an analysis slot is taken only after the
+whole upload has been received, and held through parsing and the workflow; it is
+released however they end. When no slot is free the request gets 429
+``analysis_capacity_exceeded``. The rate limit runs earlier, before the body is read.
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from backend.api.deps import AnalysisWorkflowDep, SettingsDep
+from backend.api.rate_limits import AnalysisSlotDep
 from backend.api.uploads import parse_bool_field, read_multipart_upload
 from backend.parsing.service import ParseLimits, parse_document
 from backend.schemas.common import ErrorEnvelope
@@ -79,7 +85,7 @@ _REQUEST_BODY = {
     openapi_extra={"requestBody": _REQUEST_BODY},
 )
 async def analyze(
-    request: Request, settings: SettingsDep, workflow: AnalysisWorkflowDep
+    request: Request, settings: SettingsDep, workflow: AnalysisWorkflowDep, slot: AnalysisSlotDep
 ) -> JSONResponse:
     form = await read_multipart_upload(
         request,
@@ -93,10 +99,12 @@ async def analyze(
         max_pages=settings.max_pdf_pages,
         max_chars=settings.max_extracted_chars,
     )
-    parsed = await run_in_threadpool(parse_document, form.filename, form.file_bytes, limits)
-    report = await workflow.run(
-        resume_text=parsed.text, job_description=form.fields.get(JOB_DESCRIPTION_FIELD)
-    )
+    # The upload is complete: only now take an analysis slot (429 when none is free).
+    with slot.hold():
+        parsed = await run_in_threadpool(parse_document, form.filename, form.file_bytes, limits)
+        report = await workflow.run(
+            resume_text=parsed.text, job_description=form.fields.get(JOB_DESCRIPTION_FIELD)
+        )
     response = AnalysisResponse.model_validate(
         {
             **report.model_dump(),

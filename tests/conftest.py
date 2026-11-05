@@ -82,10 +82,18 @@ def fake_groq() -> FakeGroqAPI:
 
 @pytest.fixture
 def make_settings(tmp_path: Any) -> Callable[..., Settings]:
-    """Settings that ignore any .env file and the real environment."""
+    """Settings that ignore any .env file and the real environment.
+
+    Rate limiting is off unless a test enables it: every TestClient request comes
+    from the same host, so ordinary tests would otherwise share one bucket. The
+    production default (on) is asserted in tests/unit/test_config.py.
+    """
 
     def _make(**overrides: Any) -> Settings:
-        values: dict[str, Any] = {"frontend_dir": tmp_path / "no-frontend"}
+        values: dict[str, Any] = {
+            "frontend_dir": tmp_path / "no-frontend",
+            "rate_limit_enabled": False,
+        }
         values.update(overrides)
         return Settings(_env_file=None, **values)
 

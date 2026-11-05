@@ -7,7 +7,13 @@ effects (no settings loading, no logging configuration):
 
 Middleware order, outermost first:
 RequestId -> SecurityHeaders -> AccessLog -> BodySizeLimit -> UnhandledException
--> routes. Rate limiting (M10) joins between AccessLog and BodySizeLimit.
+-> routes.
+
+Rate limiting (M10) is not middleware: it runs as router dependencies, after
+routing and before each endpoint reads its body (see ``backend.api.rate_limits``).
+/analyze takes a concurrency slot later, once its upload has been received. At the
+end of ``create_app`` the assembled route table is checked: every /api/ route must
+carry these protections, or start-up fails.
 """
 
 from __future__ import annotations
@@ -18,11 +24,21 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from backend import __version__
+from backend.api.rate_limits import (
+    ANALYZE_429_DESCRIPTION,
+    FRONTEND_MOUNT_NAME,
+    RATE_LIMIT_RESPONSE_DESCRIPTION,
+    AnalyzeConcurrencyGate,
+    enforce_rate_limit,
+    validate_rate_limit_coverage,
+    validate_unmatched_request_handling,
+)
 from backend.api.routes import analyze, health, interview, match, parse, report
+from backend.api.uploads import UPLOAD_TIMEOUT_DESCRIPTION
 from backend.core.body_limit import BodySizeLimitMiddleware
 from backend.core.config import Settings, get_settings
 from backend.core.errors import UnhandledExceptionMiddleware, register_exception_handlers
@@ -31,6 +47,7 @@ from backend.core.logging import (
     configure_logging,
     disable_third_party_tracing,
 )
+from backend.core.rate_limit import RateLimiter
 from backend.core.request_id import RequestIdMiddleware
 from backend.core.security_headers import SecurityHeadersMiddleware
 from backend.graph.analysis import AnalysisDeps, AnalysisWorkflow, build_prompt_guard
@@ -47,6 +64,7 @@ from backend.health.readiness import (
 from backend.health.upstream import GroqUpstreamMonitor
 from backend.llm.client import LLMClients
 from backend.reports.fonts import default_registry
+from backend.schemas.common import ErrorEnvelope
 from backend.scoring.embeddings import Embedder, EmbeddingService, load_sentence_transformer
 from backend.services.interview import InterviewQuestionService
 from backend.storage.report_store import ReportStore
@@ -132,6 +150,10 @@ def create_app(
         )
     )
 
+    # M10: one limiter and one /analyze concurrency gate per application.
+    rate_limiter = RateLimiter.from_settings(settings)
+    analyze_gate = AnalyzeConcurrencyGate(settings.analyze_max_concurrent)
+
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         readiness.set_ready(EMBEDDING_MODEL_LOADED, await embeddings.load())
@@ -170,18 +192,34 @@ def create_app(
     app.state.analysis_workflow = analysis_workflow
     app.state.interview_service = interview_service
     app.state.evaluation_workflow = evaluation_workflow
+    app.state.rate_limiter = rate_limiter
+    app.state.analyze_gate = analyze_gate
 
     register_exception_handlers(app)
+    limited = [Depends(enforce_rate_limit)]
+    too_many = {429: {"model": ErrorEnvelope, "description": RATE_LIMIT_RESPONSE_DESCRIPTION}}
+    # Multipart uploads must arrive within UPLOAD_READ_TIMEOUT_SECONDS.
+    upload_timeout = {408: {"model": ErrorEnvelope, "description": UPLOAD_TIMEOUT_DESCRIPTION}}
     app.include_router(health.router)
-    app.include_router(parse.router)
-    app.include_router(match.router)
-    app.include_router(analyze.router)
-    app.include_router(report.router)
-    app.include_router(interview.router)
+    app.include_router(parse.router, dependencies=limited, responses={**too_many, **upload_timeout})
+    app.include_router(match.router, dependencies=limited, responses={**too_many, **upload_timeout})
+    app.include_router(
+        analyze.router,
+        # The analysis slot is a dependency of the endpoint itself (taken after upload).
+        dependencies=limited,
+        responses={
+            429: {"model": ErrorEnvelope, "description": ANALYZE_429_DESCRIPTION},
+            **upload_timeout,
+        },
+    )
+    app.include_router(report.router, dependencies=limited, responses=too_many)
+    app.include_router(interview.router, dependencies=limited, responses=too_many)
 
     # The frontend is mounted last so that API routes always take precedence.
     if settings.frontend_dir.is_dir():
-        app.mount("/", StaticFiles(directory=settings.frontend_dir, html=True), name="frontend")
+        app.mount(
+            "/", StaticFiles(directory=settings.frontend_dir, html=True), name=FRONTEND_MOUNT_NAME
+        )
     else:
         logger.warning("frontend_dir_missing", extra={"component": "frontend"})
 
@@ -203,4 +241,8 @@ def create_app(
         csp_exempt_paths=(DOCS_URL, REDOC_URL) if docs else (),
     )
     app.add_middleware(RequestIdMiddleware)
+
+    # M10 (audit finding M1): check the routes actually registered, not a list.
+    validate_rate_limit_coverage(app.router)
+    validate_unmatched_request_handling(app)
     return app

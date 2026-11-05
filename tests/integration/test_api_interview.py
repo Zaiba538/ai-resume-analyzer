@@ -536,7 +536,16 @@ def test_wiring_methods_openapi_and_existing_endpoints(make_client) -> None:
     for url in (QUESTIONS, EVALUATE):
         operation = paths[url]["post"]
         assert set(operation) >= {"requestBody", "responses"}
-        assert set(operation["responses"]) == {"200", "404", "415", "422", "502", "503", "504"}
+        assert set(operation["responses"]) == {
+            "200",
+            "404",
+            "415",
+            "422",
+            "429",
+            "502",
+            "503",
+            "504",
+        }
         assert list(operation["requestBody"]["content"]) == ["application/json"]
     assert {
         "/api/v1/analyze",

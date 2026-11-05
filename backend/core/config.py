@@ -18,6 +18,8 @@ from typing import Any, Literal
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from backend.core.rate_limit import parse_rate_limits
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 # Decision D6: derived report data may stay in server memory for at most one hour.
@@ -36,6 +38,18 @@ _MODEL_FIELDS = (
     "groq_model_interview",
     "groq_model_evaluator",
     "groq_model_prompt_guard",
+)
+
+_RATE_LIMIT_FIELDS = (
+    "rate_limit_analyze",
+    "rate_limit_analyze_global",
+    "rate_limit_interview_questions",
+    "rate_limit_interview_evaluate",
+    "rate_limit_interview_global",
+    "rate_limit_match",
+    "rate_limit_parse",
+    "rate_limit_report",
+    "rate_limit_report_pdf",
 )
 
 
@@ -101,6 +115,28 @@ class Settings(BaseSettings):
     interview_deadline_seconds: float = Field(default=120.0, ge=1.0, le=600.0)
     evaluation_deadline_seconds: float = Field(default=120.0, ge=1.0, le=600.0)
 
+    # M10 rate limiting: in memory, per process. Limits use the ``limits`` notation
+    # ("5/minute;30/hour"). Groq quotas are unverified, so these are configurable
+    # starting defaults. ``*_global`` limits are shared by all clients; both
+    # interview endpoints draw on the same global pool.
+    rate_limit_enabled: bool = True
+    rate_limit_analyze: str = "5/minute;30/hour"
+    rate_limit_analyze_global: str = "20/minute"
+    rate_limit_interview_questions: str = "10/minute;60/hour"
+    rate_limit_interview_evaluate: str = "20/minute;200/hour"
+    rate_limit_interview_global: str = "60/minute"
+    rate_limit_match: str = "30/minute"
+    rate_limit_parse: str = "30/minute"
+    rate_limit_report: str = "60/minute"
+    rate_limit_report_pdf: str = "20/minute"
+    # Capacity of the limiter's per-client store (one key per client, endpoint and
+    # window). When full, requests needing a new key are rejected until keys expire.
+    # Measured: about 1 KB per key plus 32 bytes per counted request; the upper bound
+    # keeps the worst case within a constrained container.
+    rate_limit_max_tracked_keys: int = Field(default=10_000, ge=100, le=25_000)
+    # Concurrent /analyze requests in this process (enforced from M10 Phase 2).
+    analyze_max_concurrent: int = Field(default=2, ge=1, le=8)
+
     # Embeddings for semantic similarity (loaded once at start-up). The revision
     # pins exact model files on the Hugging Face Hub; remote code is never run.
     embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"
@@ -130,6 +166,12 @@ class Settings(BaseSettings):
         if not value:
             raise ValueError("model name must not be blank")
         return value
+
+    @field_validator(*_RATE_LIMIT_FIELDS)
+    @classmethod
+    def _rate_limit_valid(cls, value: str) -> str:
+        parse_rate_limits(value)  # raises ValueError with a fixed message
+        return value.strip()
 
     @field_validator("embedding_model_name", "embedding_model_revision")
     @classmethod

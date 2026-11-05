@@ -8,13 +8,18 @@ straight into memory, with hard limits enforced while streaming:
 * exactly one file part, named ``file``, of at most ``max_file_bytes``;
 * only allowlisted text fields, each at most ``max_field_bytes``;
 * a bounded number of parts;
-* the body must be complete, well-formed multipart.
+* the body must be complete, well-formed multipart;
+* the whole body must arrive within ``UPLOAD_READ_TIMEOUT_SECONDS`` (M10, audit
+  finding H1): a client that stalls or trickles data gets 408 ``upload_timeout``
+  instead of holding the request open indefinitely. Nothing is truncated: a body
+  either arrives in full in time or is rejected.
 
 File names are used only to read the extension; they are never logged.
 """
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Collection
 from dataclasses import dataclass
 
@@ -22,6 +27,7 @@ from fastapi import Request
 from python_multipart.exceptions import FormParserError
 from python_multipart.multipart import MultipartParser, MultipartState, parse_options_header
 
+from backend.core.errors import AppError
 from backend.parsing.errors import (
     FileTooLargeError,
     InvalidFieldError,
@@ -37,6 +43,17 @@ MAX_PARTS = 8
 MAX_FIELD_BYTES = 1024
 _TRUE = frozenset({"true", "1", "on", "yes"})
 _FALSE = frozenset({"false", "0", "off", "no", ""})
+
+# Maximum time to receive a whole multipart body: generous for a 5 MiB upload on a
+# slow connection (about 85 KB/s), short enough that stalled uploads do not pile up.
+UPLOAD_READ_TIMEOUT_SECONDS = 60.0
+UPLOAD_TIMEOUT_DESCRIPTION = "The upload was not received in time (`upload_timeout`)"
+
+
+class UploadTimeoutError(AppError):
+    status_code = 408
+    code = "upload_timeout"
+    message = "The upload was not received in time. Please try again."
 
 
 @dataclass(frozen=True)
@@ -149,10 +166,15 @@ async def read_multipart_upload(
     }
     try:
         parser = MultipartParser(boundary, callbacks)  # type: ignore[arg-type]
-        async for chunk in request.stream():
-            if chunk:
-                parser.write(chunk)
+        # One deadline for the whole body, not per chunk: trickling data cannot
+        # extend it. Read at call time so that tests can shorten it.
+        async with asyncio.timeout(UPLOAD_READ_TIMEOUT_SECONDS):
+            async for chunk in request.stream():
+                if chunk:
+                    parser.write(chunk)
         parser.finalize()
+    except TimeoutError:
+        raise UploadTimeoutError() from None
     except FormParserError as exc:
         raise MalformedMultipartError() from exc
 

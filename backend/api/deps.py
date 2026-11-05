@@ -6,11 +6,12 @@ tests can build isolated applications with their own settings and fakes.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends, Request
 
 from backend.core.config import Settings
+from backend.core.rate_limit import RateLimiter
 from backend.graph.analysis import AnalysisWorkflow
 from backend.graph.evaluation import EvaluationWorkflow
 from backend.health.readiness import ReadinessRegistry
@@ -19,6 +20,9 @@ from backend.llm.client import LLMClients
 from backend.scoring.embeddings import EmbeddingService
 from backend.services.interview import InterviewQuestionService
 from backend.storage.report_store import ReportStore
+
+if TYPE_CHECKING:  # backend.api.rate_limits imports this module
+    from backend.api.rate_limits import AnalyzeConcurrencyGate
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -55,6 +59,14 @@ def get_interview_service(request: Request) -> InterviewQuestionService:
 
 def get_evaluation_workflow(request: Request) -> EvaluationWorkflow:
     return request.app.state.evaluation_workflow
+
+
+def get_rate_limiter(request: Request) -> RateLimiter:
+    return request.app.state.rate_limiter
+
+
+def get_analyze_gate(request: Request) -> AnalyzeConcurrencyGate:
+    return request.app.state.analyze_gate
 
 
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
