@@ -1,0 +1,12 @@
+# Development and CI dependencies. Includes all runtime dependencies so the
+# dev lock (requirements-dev.txt) is a single, consistent, hashed install.
+# Constrained by requirements.txt so runtime pins are identical in both locks.
+# Regenerate with (uv 0.13.6), after requirements.txt:
+#
+#   uv pip compile requirements-dev.in --universal --python-version 3.12 \
+#       --generate-hashes -c requirements.txt -o requirements-dev.txt
+-r requirements.in
+
+pytest==9.2.0
+pytest-asyncio==1.4.1
+ruff==0.17.3

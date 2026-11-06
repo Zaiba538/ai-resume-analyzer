@@ -1,0 +1,31 @@
+# Unlike .gitignore, .dockerignore patterns are anchored to the build-context
+# root: a bare "*.pdf" only matches top-level files. Every pattern that must
+# apply at any depth therefore uses a "**/" prefix.
+
+# Secrets: never send to the Docker build context.
+**/.env
+**/.env.*
+!.env.example
+
+# Version control and local environments
+.git
+.github
+**/venv*
+**/.venv*
+
+# Caches and build artefacts
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+**/*.log
+
+# Editors and OS files
+**/.vscode
+**/.idea
+**/Thumbs.db
+**/.DS_Store
+
+# User documents (resume uploads must never be baked into an image)
+**/*.pdf
+**/*.docx

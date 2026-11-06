@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "sections": [
+    {
+      "name": "contact",
+      "detector": "contact_patterns",
+      "headings": ["contact", "contact information", "contact details", "personal details"]
+    },
+    {
+      "name": "summary",
+      "headings": [
+        "summary", "professional summary", "career summary", "profile",
+        "professional profile", "objective", "career objective", "about me"
+      ]
+    },
+    {
+      "name": "skills",
+      "headings": [
+        "skills", "technical skills", "key skills", "core skills", "skill set", "skillset",
+        "core competencies", "competencies", "skills and tools", "tools and technologies",
+        "technologies", "technical proficiencies"
+      ]
+    },
+    {
+      "name": "experience",
+      "headings": [
+        "experience", "work experience", "professional experience", "employment",
+        "employment history", "work history", "career history", "internships",
+        "internship", "internship experience", "relevant experience"
+      ]
+    },
+    {
+      "name": "education",
+      "headings": [
+        "education", "academic background", "academic qualifications",
+        "educational qualifications", "qualifications", "education and training"
+      ]
+    },
+    {
+      "name": "projects",
+      "headings": [
+        "projects", "personal projects", "academic projects", "key projects",
+        "project experience", "selected projects"
+      ]
+    },
+    {
+      "name": "certifications",
+      "headings": [
+        "certifications", "certification", "certificates", "licenses and certifications",
+        "licences and certifications", "courses and certifications", "courses"
+      ]
+    }
+  ]
+}
