@@ -319,6 +319,7 @@ Every error uses the same envelope. `details` appears only on 422
 | 422 | `validation_error` | both | Malformed JSON, a duplicate key, an unknown field, a wrong type or a value outside its limits. |
 | 422 | `empty_answer` | evaluate | Nothing is left of the answer after sanitisation. |
 | 422 | `answer_too_long` | evaluate | The sanitised answer exceeds `MAX_ANSWER_CHARS`. |
+| 429 | `rate_limited` | both | The client's limit, or the limit shared by both endpoints, is used up. `Retry-After` gives the wait in seconds. |
 | 502 | `upstream_error` | both | The language-model service returned an error. |
 | 502 | `upstream_auth_failed` | both | The language-model service rejected the server's credentials. |
 | 502 | `invalid_llm_output` | both | The model's output was invalid, even after one repair attempt. |
@@ -520,7 +521,8 @@ use the whole deadline and end in a 504.
 
 ## Limitations
 
-* **No authentication**, and **no rate limiting** yet (planned for M10). Each
+* **No authentication.** Both endpoints are rate limited per client, and they
+  share one global limit (see [rate-limiting.md](rate-limiting.md)). Each
   evaluation makes one evaluator call and up to `PROMPT_GUARD_MAX_CHUNKS`
   Prompt Guard calls; each question request makes one model call.
 * **Detection is not prevention.** Injection flags are informational, and the

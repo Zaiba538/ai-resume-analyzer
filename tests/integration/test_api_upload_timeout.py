@@ -17,11 +17,11 @@ import pytest
 from backend.api import uploads
 from tests.fixtures.documents import make_docx
 from tests.fixtures.rate_limit import CLIENT_HEADER, harness_factory
-from tests.integration.test_api_analyze_concurrency import (
-    _FAKES,
+from tests.integration.test_api_analyze_concurrency import (  # noqa: F401 - fixture
     FakeWorkflow,
     analyze,
     assert_busy,
+    fake_registry,
     fill_gate,
     wait_for,
 )
@@ -32,23 +32,34 @@ CANARY = b"CANARY-h1-upload-5e2a"
 DOCX = make_docx(paragraphs=[line for line in RESUME.splitlines() if line.strip()])
 MULTIPART_ENDPOINTS = ("/api/v1/parse", "/api/v1/match", "/api/v1/analyze")
 TIMEOUT_MESSAGE = "The upload was not received in time. Please try again."
-_RAW_FUTURES: list = []
+# Bound only while a test runs (the ``raw_futures`` fixture), like the fake registry.
+_active_raw_futures: list | None = None
+
+
+@pytest.fixture(autouse=True)
+def raw_futures():
+    global _active_raw_futures
+    futures: list = []
+    _active_raw_futures = futures
+    try:
+        yield futures
+    finally:
+        for future in futures:
+            future.cancel()
+        _active_raw_futures = None
 
 
 @pytest.fixture
-def harness(make_settings, fake_groq):
+def harness(make_settings, fake_groq, fake_registry, raw_futures):  # noqa: F811 - fixture
     factory = harness_factory(make_settings, fake_groq)
     try:
         yield next(factory)
     finally:
         # Never leave requests blocked when a test fails: cancel raw requests that
         # are still running and unblock fake analyses before the clients close.
-        for future in _RAW_FUTURES:
+        for future in raw_futures:
             future.cancel()
-        _RAW_FUTURES.clear()
-        for fake in _FAKES:
-            fake.released.set()
-        _FAKES.clear()
+        fake_registry.release_all()
         next(factory, None)
 
 
@@ -155,7 +166,9 @@ def start_raw(h, path: str, ip: str, chunks: list[bytes], *, then: str, delay: f
     future = h.client.portal.start_task_soon(
         lambda: raw_post(h.wrapper, path, ip, chunks, then=then, delay=delay, result=result)
     )
-    _RAW_FUTURES.append(future)
+    if _active_raw_futures is None:
+        raise RuntimeError("start_raw needs the raw_futures fixture")
+    _active_raw_futures.append(future)
     return result, future
 
 

@@ -193,3 +193,35 @@ def test_app_test_settings_disable_rate_limiting_but_production_enables_it(make_
     assert make_settings().rate_limit_enabled is False
     assert make_settings(rate_limit_enabled=True).rate_limit_enabled is True
     assert Settings(_env_file=None).rate_limit_enabled is True
+
+
+M10_SETTINGS = (
+    "rate_limit_enabled",
+    "rate_limit_analyze",
+    "rate_limit_analyze_global",
+    "rate_limit_interview_questions",
+    "rate_limit_interview_evaluate",
+    "rate_limit_interview_global",
+    "rate_limit_match",
+    "rate_limit_parse",
+    "rate_limit_report",
+    "rate_limit_report_pdf",
+    "rate_limit_max_tracked_keys",
+    "analyze_max_concurrent",
+)
+
+
+def test_env_example_documents_every_rate_limit_setting_with_its_default() -> None:
+    from backend.core.config import PROJECT_ROOT
+
+    env_example = PROJECT_ROOT / ".env.example"
+    documented = {
+        line.split("=", 1)[0]
+        for line in env_example.read_text(encoding="utf-8").splitlines()
+        if "=" in line and not line.startswith("#")
+    }
+    assert {name.upper() for name in M10_SETTINGS} <= documented
+    loaded = Settings(_env_file=env_example)
+    defaults = Settings(_env_file=None)
+    for name in M10_SETTINGS:
+        assert getattr(loaded, name) == getattr(defaults, name), name

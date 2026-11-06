@@ -21,20 +21,52 @@ from tests.unit.test_critic_checks import RESUME
 DOCX = make_docx(paragraphs=[line for line in RESUME.splitlines() if line.strip()])
 
 
-_FAKES: list[FakeWorkflow] = []
+class FakeRegistry:
+    """The fake workflows created by one test, released together when it ends."""
+
+    def __init__(self) -> None:
+        self._fakes: list[FakeWorkflow] = []
+
+    def add(self, fake: FakeWorkflow) -> None:
+        self._fakes.append(fake)
+
+    def release_all(self) -> None:
+        for fake in self._fakes:
+            fake.released.set()
+
+
+# Bound only while a test runs (the ``fake_registry`` fixture), so fakes can never
+# outlive their test or be shared between tests.
+_active_fakes: FakeRegistry | None = None
+
+
+def _current_fakes() -> FakeRegistry:
+    if _active_fakes is None:
+        raise RuntimeError("FakeWorkflow needs the fake_registry fixture")
+    return _active_fakes
+
+
+@pytest.fixture(autouse=True)
+def fake_registry():
+    global _active_fakes
+    registry = FakeRegistry()
+    _active_fakes = registry
+    try:
+        yield registry
+    finally:
+        registry.release_all()
+        _active_fakes = None
 
 
 @pytest.fixture
-def harness(make_settings, fake_groq):
+def harness(make_settings, fake_groq, fake_registry):
     factory = harness_factory(make_settings, fake_groq)
     try:
         yield next(factory)
     finally:
         # Unblock every fake before the clients close, so that a failed assertion
         # cannot leave requests (and the test run) waiting forever.
-        for fake in _FAKES:
-            fake.released.set()
-        _FAKES.clear()
+        fake_registry.release_all()
         next(factory, None)
 
 
@@ -52,7 +84,7 @@ class FakeWorkflow:
             self.released.set()
         self._lock = threading.Lock()
         self.entered = 0
-        _FAKES.append(self)
+        _current_fakes().add(self)
 
     async def run(self, *, resume_text: str, job_description: str | None):
         with self._lock:
@@ -76,8 +108,7 @@ def analyze(h, ip: str = "192.0.2.1", data: bytes = DOCX, *, timeout: float = 20
     thread.start()
     thread.join(timeout)
     if thread.is_alive():
-        for fake in _FAKES:
-            fake.released.set()
+        _current_fakes().release_all()
         thread.join(timeout)
         pytest.fail("the request did not complete: it was queued or blocked, not rejected")
     return result[0]

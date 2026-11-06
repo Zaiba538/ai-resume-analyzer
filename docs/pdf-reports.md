@@ -63,6 +63,7 @@ Errors use the standard error envelope
 |---:|---|---|
 | 404 | `report_not_found` | The ID is malformed, unknown or expired (indistinguishable) |
 | 422 | `pdf_page_limit_exceeded` | The PDF would need more than 100 pages; nothing is truncated |
+| 429 | `rate_limited` | The client's limit is used up; `Retry-After` gives the wait in seconds |
 | 503 | `pdf_renderer_unavailable` | The bundled fonts could not be registered |
 | 504 | `pdf_render_timeout` | Rendering did not finish within 15 seconds |
 | 500 | `internal_error` | Unexpected failure (the exception message is neither returned nor logged) |
@@ -106,8 +107,8 @@ provenance and SHA-256 are recorded in `fonts-manifest.json`:
 * **Renders are serialised.** ReportLab's shaping updates shared font data, so
   one lock allows one render at a time in the process. Concurrent requests
   queue, and their wait counts against their own deadline, so heavy concurrent
-  use can produce 504s. The service runs as a single process; rate limiting is
-  planned for M10.
+  use can produce 504s. The service runs as a single process, and the endpoint
+  is rate limited per client (see [rate-limiting.md](rate-limiting.md)).
 * **Typical cost:** a typical report renders in well under a second. Devanagari
   text is roughly ten times slower to render than Latin text, so a very large
   Devanagari report can reach the 15-second deadline before the page limit,

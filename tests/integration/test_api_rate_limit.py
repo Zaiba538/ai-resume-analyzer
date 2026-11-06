@@ -375,9 +375,76 @@ def test_openapi_documents_429_on_rate_limited_operations_only(harness) -> None:
     assert "429" not in spec["paths"]["/ready"]["get"]["responses"]
 
 
-def test_busy_and_rate_limited_messages_are_fixed() -> None:
+def test_busy_and_rate_limited_messages_are_fixed(harness) -> None:
     assert RATE_LIMITED_MESSAGE == "Too many requests. Please try again later."
     assert (
         ANALYSIS_BUSY_MESSAGE == "The server is busy with other analyses. Please try again shortly."
     )
-    assert REPORT_ID not in RATE_LIMITED_MESSAGE
+    # A real 429 for a request that names a report never echoes the report ID, the
+    # path or the client address, in the body or in any header.
+    h = harness(rate_limit_report="1/minute")
+    client_ip = "198.51.100.42"
+    assert h.call(rate_limit.REPORT, ip=client_ip).status_code == 404
+    limited = h.call(rate_limit.REPORT, ip=client_ip)
+    assert_rate_limited(limited)
+    exposed = limited.text + "\n".join(f"{k}: {v}" for k, v in limited.headers.items())
+    for value in (REPORT_ID, client_ip, "/api/v1/report"):
+        assert value not in exposed
+
+
+# --- a full limiter store (fail closed) -----------------------------------------------------
+
+
+def test_a_full_store_rejects_new_clients_with_the_429_envelope(harness, captured_logs) -> None:
+    """Every key slot taken: a new client gets 429 before any work; known clients go on."""
+    h = harness(rate_limit_max_tracked_keys=100)  # the configurable minimum
+    clock = h.use_fake_clock()
+    known = [f"198.51.100.{i}" for i in range(1, 101)]
+    for ip in known:  # report: 60/minute, so one key per client
+        assert h.call(rate_limit.REPORT, ip=ip).status_code == 404
+    assert h.limiter.tracked_client_keys() == 100
+
+    clock.advance(15)
+    newcomer = "203.0.113.200"
+    # Retry-After: the earliest key expires 60 s after it was created, 45 s from now.
+    assert_rate_limited(h.call(rate_limit.REPORT, ip=newcomer), retry_after=45)
+    reads = len(h.wrapper.body_reads)
+    upload = h.request(
+        "POST", "/api/v1/parse", ip=newcomer, files={"file": ("cv.docx", make_docx(["x"]))}
+    )
+    assert_rate_limited(upload, retry_after=45)
+    assert h.wrapper.body_reads[reads] == ("/api/v1/parse", 0)  # rejected before the body
+    assert h.limiter.tracked_client_keys() == 100  # nothing created, nothing evicted
+    assert h.call(rate_limit.REPORT, ip=known[0]).status_code == 404  # known clients served
+
+    clock.advance(45)  # the keys created at the start have expired
+    assert h.call(rate_limit.REPORT, ip=newcomer).status_code == 404  # recovered
+    assert len(captured_logs.events("rate_limit_capacity_exhausted")) == 1
+    assert newcomer not in captured_logs.text and known[0] not in captured_logs.text
+
+
+# --- HEAD and OPTIONS on limited routes -----------------------------------------------------
+
+
+@pytest.mark.parametrize("method", ["HEAD", "OPTIONS"])
+@pytest.mark.parametrize("policy", sorted(ENDPOINTS))
+def test_head_and_options_on_limited_routes_are_405_without_work(
+    harness, policy: str, method: str
+) -> None:
+    h = harness(**ALL_ONE_PER_MINUTE)
+    route_method, url, _ = ENDPOINTS[policy]
+    reads = len(h.wrapper.body_reads)
+    for _ in range(3):
+        response = h.request(method, url)
+        assert response.status_code == 405
+        assert response.headers["Allow"] == route_method
+        assert "X-Request-ID" in response.headers and "Retry-After" not in response.headers
+        if method == "OPTIONS":
+            assert response.json()["error"]["code"] == "method_not_allowed"
+    # Routing answers 405 before any dependency runs: the rate limit was not consulted
+    # (no key, so no quota used) and the handler, which runs after it, never ran.
+    assert h.limiter.tracked_client_keys() == 0
+    assert all(count == 0 for _, count in h.wrapper.body_reads[reads:])
+    assert h.app.state.analyze_gate.in_flight == 0
+    assert h.call(policy).status_code != 429  # the one allowed request is still available
+    assert_rate_limited(h.call(policy))
