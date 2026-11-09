@@ -48,6 +48,7 @@
     {"name": "Data Visualization", "aliases": ["data visualization", "data visualisation"]},
     {"name": "Statistics", "aliases": ["statistics", "statistical analysis", "statistical modeling", "statistical modelling"]},
     {"name": "Feature Engineering", "aliases": ["feature engineering"]},
+    {"name": "Data Preprocessing", "aliases": ["data preprocessing", "data pre-processing", "data cleaning", "data cleansing"]},
     {"name": "Pandas", "aliases": ["pandas"]},
     {"name": "NumPy", "aliases": ["numpy"]},
     {"name": "scikit-learn", "aliases": ["scikit-learn", "scikit learn", "sklearn"]},

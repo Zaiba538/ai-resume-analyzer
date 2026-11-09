@@ -20,6 +20,14 @@ Pipeline:
    are selected for publication, and the verdict is derived from them by
    ``derive_verdict``.
 
+Severity from evidence certainty (M11 Phase 2, F4): a ``contradiction`` that
+the deterministic checks prove keeps its fixed ``high``. A ``contradiction``
+the LLM reports on a claim those checks could not decide (a judgement on
+paraphrased evidence, such as an Experience bullet describing data cleaning) is
+published as ``medium`` (``calibrate_inferred_severity``). Medium still leads to
+one revision; only the certainty is reported differently. Other categories,
+including injection influence, keep the LLM's severity.
+
 Verdict rules (decisions Q1, Q2): confirmed injection influence -> flagged;
 otherwise any medium or high issue -> revise, targeting the responsible agents;
 otherwise approve. Confirmation (``injection_confirmed``) requires a suspicious
@@ -196,6 +204,27 @@ def apply_revision_cap(
     return verdict
 
 
+def calibrate_inferred_severity(
+    llm_issues: Iterable[ReviewIssue], undecided: Sequence[Claim]
+) -> list[ReviewIssue]:
+    """LLM contradictions on claims the checks could not decide become ``medium``.
+
+    Such a contradiction rests on the LLM's reading of paraphrased evidence, not
+    on a deterministic match, so it is not reported with the certainty of a
+    proven one (M11 Phase 2, F4). Severity is never raised.
+    """
+    calibrated: list[ReviewIssue] = []
+    for item in llm_issues:
+        inferred = item.category == "contradiction" and any(
+            claim.agent == item.agent and _paths_overlap(claim.field, item.field)
+            for claim in undecided
+        )
+        if inferred and item.severity == "high":
+            item = ReviewIssue.model_validate({**item.model_dump(), "severity": "medium"})
+        calibrated.append(item)
+    return calibrated
+
+
 def normalize_field(item: ReviewIssue) -> ReviewIssue:
     """Make an LLM field path agent-relative, as the deterministic checks report it.
 
@@ -315,7 +344,9 @@ def _agent_outputs_json(
         "skill_gap": _dump_for_review(critic_input.skill_gap),
         "requested_interview_levels": list(levels) if critic_input.interview else [],
         "count_per_level": critic_input.count_per_level if critic_input.interview else None,
-        "claims_to_verify": [{"agent": c.agent, "field": c.field} for c in ambiguous],
+        "claims_to_verify": [
+            {"agent": c.agent, "field": c.field, "expectation": c.expectation} for c in ambiguous
+        ],
         "suspicious_outputs": [{"agent": i.agent, "field": i.field} for i in suspicious],
         "input_security_flags": sorted({f.type for f in critic_input.security_flags}),
         "validated_outputs": sorted(agent for agent, model in outputs.items() if model),
@@ -380,7 +411,9 @@ async def run_critic_agent(
         ),
         source_texts=[resume, job or "", outputs_json],
     )
-    llm_issues = [normalize_field(item) for item in review.output.issues]
+    llm_issues = calibrate_inferred_severity(
+        [normalize_field(item) for item in review.output.issues], checks.ambiguous
+    )
     verdict = derive_verdict(
         merge_issues(checks.issues, llm_issues),
         injection_confirmed=injection_confirmed(suspicious, llm_issues),

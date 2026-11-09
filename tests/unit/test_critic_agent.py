@@ -95,7 +95,7 @@ async def test_approve_when_nothing_is_wrong() -> None:
     result = await run(fake, full_input())
     assert result.output.verdict == "approve"
     assert result.output.issues == [] and result.output.revise_targets == []
-    assert result.prompt_id == CRITIC_PROMPT.id == "critic@1.1.0"
+    assert result.prompt_id == CRITIC_PROMPT.id == "critic@1.4.0"
     assert fake.bodies[0]["model"] == "openai/gpt-oss-120b"
 
 
@@ -235,7 +235,11 @@ async def test_instruction_like_output_without_any_input_signal_is_not_injection
     assert result.output.verdict == "approve"
     outputs = json.loads(user_block(fake, "agent_outputs"))
     assert outputs["suspicious_outputs"] == []
-    assert {"agent": "resume", "field": "projects[0]"} in outputs["claims_to_verify"]
+    assert {
+        "agent": "resume",
+        "field": "projects[0]",
+        "expectation": "resume_supports",
+    } in outputs["claims_to_verify"]
 
 
 @pytest.mark.asyncio
@@ -320,9 +324,11 @@ async def test_qualified_missing_skills_are_verified_not_contradicted() -> None:
     assert result.output.verdict == "approve" and result.output.issues == []
     outputs = json.loads(user_block(fake, "agent_outputs"))
     for n in range(3):
-        assert {"agent": "skill_gap", "field": f"missing_skills[{n}]"} in outputs[
-            "claims_to_verify"
-        ]
+        assert {
+            "agent": "skill_gap",
+            "field": f"missing_skills[{n}]",
+            "expectation": "resume_lacks",
+        } in outputs["claims_to_verify"]
 
 
 # --- the LLM never chooses the verdict ------------------------------------------------
@@ -425,7 +431,11 @@ async def test_request_contract_and_claims_to_verify() -> None:
     assert body["response_format"]["json_schema"]["strict"] is True
     assert "verdict" not in json.dumps(body["response_format"]["json_schema"]["schema"])
     outputs = json.loads(user_block(fake, "agent_outputs"))
-    assert {"agent": "resume", "field": "certifications[0]"} in outputs["claims_to_verify"]
+    assert {
+        "agent": "resume",
+        "field": "certifications[0]",
+        "expectation": "resume_supports",
+    } in outputs["claims_to_verify"]
     assert outputs["requested_interview_levels"] == ["beginner", "intermediate", "advanced"]
     assert outputs["validated_outputs"] == ["interview", "resume", "skill_gap"]
 

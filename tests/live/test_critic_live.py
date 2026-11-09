@@ -61,7 +61,7 @@ async def test_review_of_real_agent_outputs(llm) -> None:
         ),
     )
     print(f"\npipeline critic: {summary(result)}")
-    assert result.prompt_id == "critic@1.1.0"
+    assert result.prompt_id == "critic@1.4.0"
     assert result.output.verdict != "flagged"  # benign synthetic input
 
 

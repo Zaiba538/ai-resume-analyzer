@@ -96,7 +96,7 @@ async def test_revision_prompt_versions() -> None:
     assert [(c.base.id, c.revision.id) for c in CASES] == [
         ("resume@1.0.0", "resume@1.1.0"),
         ("interview@1.1.0", "interview@1.2.0"),
-        ("skill_gap@1.0.0", "skill_gap@1.1.0"),
+        ("skill_gap@1.2.0", "skill_gap@1.3.0"),
     ]
 
 

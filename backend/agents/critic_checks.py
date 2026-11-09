@@ -23,6 +23,25 @@ a letter, digit, combining mark, "+" or "#" treated as a separator.
 Severities are fixed per check in ``SEVERITY``: ``high`` for output that is
 false, structurally invalid or carries embedded instructions; ``medium`` for
 truthful output that does not meet the request. No check emits ``low``.
+
+Demonstrable skills (M11 Phase 2, H-1): a competency in ``DEMONSTRABLE_SKILLS``
+(data preprocessing, machine learning, ...) can be shown by described work
+without being named, so a matching skill of that kind that the resume does not
+name goes to the LLM with ``resume_supports``. A named tool, language or
+platform (Kubernetes, Tableau, Python) cannot be shown by paraphrase: if no
+alias of it occurs in the resume, a matching claim stays a certain
+contradiction. That includes tools filed under a demonstrable competency
+(``NAMED_TOOL_ALIASES``: pytest, JUnit), which the resume must name exactly.
+A claim combining both ("machine learning with scikit-learn") goes to the LLM
+only when every skill the resume does not name is demonstrable.
+
+Claim expectations (M11 Phase 2, F3): every undecided claim tells the LLM what
+the resume should show for the output to be right. ``resume_supports`` for
+profile entries and matching skills; ``resume_lacks`` for missing skills. A
+missing skill is sent with ``resume_lacks`` even when no alias of it occurs in
+the resume ("absent"): the absence of a skill's name is not the absence of
+evidence, because Experience and Projects describe work in the candidate's own
+words ("cleaned and transformed sales records" for data preprocessing).
 """
 
 from __future__ import annotations
@@ -45,6 +64,7 @@ from backend.security.injection import heuristic_flag_types
 from backend.security.sanitize import sanitize_text
 
 Presence = Literal["present", "absent", "unknown"]
+Expectation = Literal["resume_supports", "resume_lacks"]
 _MAX_QUOTED = 120
 _KEEP = frozenset("+#")
 
@@ -67,13 +87,55 @@ SEVERITY: dict[CheckKind, Severity] = {
     "duplicate_question": "medium",
 }
 
+# Canonical vocabulary names of competencies that described work can demonstrate
+# without naming them (M11 Phase 2, H-1). Tools, languages and platforms are
+# deliberately absent: those must be named in the resume.
+DEMONSTRABLE_SKILLS: frozenset[str] = frozenset(
+    {
+        "Machine Learning",
+        "Deep Learning",
+        "Natural Language Processing",
+        "Computer Vision",
+        "Data Analysis",
+        "Data Visualization",
+        "Statistics",
+        "Feature Engineering",
+        "Data Preprocessing",
+        "ETL",
+        "Data Warehousing",
+        "REST APIs",
+        "Microservices",
+        "System Design",
+        "Data Structures",
+        "Algorithms",
+        "Object-Oriented Programming",
+        "Unit Testing",
+        "CI/CD",
+        "Agile",
+        "Communication",
+        "Leadership",
+        "Teamwork",
+        "Project Management",
+        "Stakeholder Management",
+    }
+)
+
+# Tool names filed as aliases of a demonstrable competency (pytest and JUnit under
+# Unit Testing). Work cannot demonstrate a tool, so a claim naming one needs that
+# exact tool in the resume (MED-1). Normalised as ``normalize_for_match`` does.
+NAMED_TOOL_ALIASES: frozenset[str] = frozenset({"pytest", "junit"})
+
 
 @dataclass(frozen=True)
 class Claim:
-    """A claim the deterministic checks could not decide (verified by the LLM)."""
+    """A claim the deterministic checks could not decide (verified by the LLM).
+
+    ``expectation`` is what the resume must show for the output to be correct.
+    """
 
     agent: AgentName
     field: str
+    expectation: Expectation = "resume_supports"
 
 
 @dataclass
@@ -123,6 +185,36 @@ def _all_alias_forms(canonical: str) -> list[str]:
     return [canonical]
 
 
+def _named_in(name: str, document: DocumentIndex) -> bool:
+    """Some alias of the canonical skill occurs in the document, even inside a word."""
+    return name in document.skills or any(
+        form.casefold() in document.loose for form in _all_alias_forms(name)
+    )
+
+
+def unnamed_tool_alias(claim: str, document: DocumentIndex) -> bool:
+    """The claim names a tool from ``NAMED_TOOL_ALIASES`` that the document does not.
+
+    Such a tool is an alias of a demonstrable competency, so the canonical skill
+    being present (through another alias) does not show the tool itself.
+    """
+    claim_norm = normalize_for_match(claim)
+    return any(
+        contains_phrase(claim_norm, alias) and not contains_phrase(document.normalized, alias)
+        for alias in NAMED_TOOL_ALIASES
+    )
+
+
+def only_competencies_unnamed(claim: str, document: DocumentIndex) -> bool:
+    """Every known skill in ``claim`` the document does not name is demonstrable.
+
+    A named tool in the claim that the document names does not block this (MED-2:
+    "machine learning with scikit-learn" on a resume naming scikit-learn).
+    """
+    unnamed = [name for name in skill_matcher().find(claim) if not _named_in(name, document)]
+    return bool(unnamed) and all(name in DEMONSTRABLE_SKILLS for name in unnamed)
+
+
 class DocumentIndex:
     """A document prepared once for many presence checks."""
 
@@ -160,9 +252,7 @@ def skill_presence(claim: str, document: DocumentIndex) -> Presence:
     if not canonical:
         return "unknown"
     for name in canonical:
-        if name not in document.skills and not any(
-            form.casefold() in document.loose for form in _all_alias_forms(name)
-        ):
+        if not _named_in(name, document):
             return "absent"
     if is_bare_skill(claim, canonical) and canonical[0] in document.skills:
         return "present"
@@ -243,14 +333,23 @@ def check_profile_grounding(profile: ResumeProfile, resume_text: str) -> CheckRe
 
 
 def check_skill_gap(report: SkillGapReport, resume_text: str, job_text: str) -> CheckResult:
-    """matching_skills must be in resume and job; missing_skills in job but not resume."""
+    """matching_skills must be in resume and job; missing_skills in job but not resume.
+
+    Certain contradictions are issues. Every other missing skill goes to the LLM
+    with ``resume_lacks``, so that evidence described in Experience or Projects
+    is checked before a skill gap is accepted. A matching demonstrable skill the
+    resume does not name goes to the LLM with ``resume_supports`` (H-1).
+    """
     result = CheckResult()
     resume, job = DocumentIndex(resume_text), DocumentIndex(job_text)
     for i, skill in enumerate(report.matching_skills):
         path = f"matching_skills[{i}]"
         in_resume = skill_presence(skill, resume)
         in_job = skill_presence(skill, job)
-        if in_resume == "absent":
+        unnamed = in_resume == "absent"
+        if unnamed_tool_alias(skill, resume) or (
+            unnamed and not only_competencies_unnamed(skill, resume)
+        ):
             result.issues.append(
                 issue(
                     "skill_gap",
@@ -271,14 +370,18 @@ def check_skill_gap(report: SkillGapReport, resume_text: str, job_text: str) -> 
                     "mention it.",
                 )
             )
-        elif "unknown" in (in_resume, in_job):
-            result.ambiguous.append(Claim("skill_gap", path))
+        elif unnamed or "unknown" in (in_resume, in_job):
+            # Unnamed demonstrable skill or undecidable: the LLM checks the Technical
+            # Skills, Experience and Projects for evidence.
+            result.ambiguous.append(Claim("skill_gap", path, "resume_supports"))
 
     for i, skill in enumerate(report.missing_skills):
         path = f"missing_skills[{i}]"
         in_resume = skill_presence(skill, resume)
         in_job = skill_presence(skill, job)
-        if in_resume == "present":
+        # A sibling tool of the same competency (JUnit for pytest) is no proof that
+        # the missing tool is in the resume (Fix A): the LLM decides instead.
+        if in_resume == "present" and not unnamed_tool_alias(skill, resume):
             result.issues.append(
                 issue(
                     "skill_gap",
@@ -299,8 +402,10 @@ def check_skill_gap(report: SkillGapReport, resume_text: str, job_text: str) -> 
                     "require it.",
                 )
             )
-        elif "unknown" in (in_resume, in_job):
-            result.ambiguous.append(Claim("skill_gap", path))
+        else:
+            # Not named in the resume (absent), only a sibling tool is named, or
+            # undecidable: the LLM checks Technical Skills, Experience and Projects.
+            result.ambiguous.append(Claim("skill_gap", path, "resume_lacks"))
     return result
 
 
