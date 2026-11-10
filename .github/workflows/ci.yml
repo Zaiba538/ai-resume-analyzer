@@ -35,6 +35,12 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
           cache-dependency-path: requirements-dev.txt
+      # Node.js runs the frontend behaviour tests (standard library only, no npm).
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: Node.js version
+        run: node --version
       - name: Install hashed dev lock
         run: python -m pip install --require-hashes --no-deps -r requirements-dev.txt
       - name: Check dependency consistency
@@ -44,6 +50,8 @@ jobs:
       - name: Ruff format
         run: ruff format --check .
       - name: Tests (offline; live tests deselected)
+        env:
+          FRONTEND_REQUIRE_NODE: "1" # the frontend Node.js tests must run, never skip
         run: python -m pytest
 
   integrity:

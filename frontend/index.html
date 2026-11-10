@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <meta name="description" content="Analyse a resume against a job description and practise interview questions.">
+    <title>Resume Intelligence Platform</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="css/styles.css">
+    <script type="module" src="js/app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+
+    <header class="topbar">
+      <div class="topbar__inner">
+        <span class="brand">
+          <span class="brand__mark" aria-hidden="true">RI</span>
+          <span class="brand__name">Resume Intelligence</span>
+        </span>
+        <nav class="topnav" aria-label="Main">
+          <button type="button" class="topnav__link" id="nav-upload" aria-current="page">New analysis</button>
+          <button type="button" class="topnav__link" id="nav-results" disabled>Results</button>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" class="page" tabindex="-1">
+      <!-- The one status region: short, important status changes only (never timers or counters). -->
+      <p id="app-status" class="visually-hidden" role="status" aria-atomic="true"></p>
+
+      <noscript>
+        <p class="alert alert--error">This application needs JavaScript to run.</p>
+      </noscript>
+
+      <!-- Upload ------------------------------------------------------------------>
+      <section id="view-upload" class="view" aria-labelledby="upload-title">
+        <div class="view__header">
+          <h1 id="upload-title">Analyse a resume</h1>
+          <p class="lead">
+            Upload a resume and, optionally, paste a job description. The analysis extracts the
+            resume profile, compares it with the job description and prepares interview questions.
+          </p>
+        </div>
+
+        <form id="upload-form" class="card form" novalidate>
+          <div class="form__field">
+            <span class="form__label" id="file-label">Resume file</span>
+            <label class="dropzone" id="dropzone" for="resume-file">
+              <input type="file" id="resume-file" name="file" class="visually-hidden"
+                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                aria-labelledby="file-label" aria-describedby="file-help file-status">
+              <span class="dropzone__title">Choose a file or drag it here</span>
+              <span class="dropzone__help" id="file-help">PDF or DOCX. The default size limit is <span id="file-limit"></span>; the server may be configured differently. Text-based documents only, in English.</span>
+              <span class="dropzone__status" id="file-status" aria-live="polite"></span>
+            </label>
+          </div>
+
+          <div class="form__field">
+            <label class="form__label" for="job-description">Job description <span class="form__optional">(optional)</span></label>
+            <textarea id="job-description" name="job_description" rows="8"
+              aria-describedby="job-description-help job-description-count"
+              placeholder="Paste the job description to get job matching and skill-gap analysis."></textarea>
+            <div class="form__meta">
+              <span id="job-description-help">Without a job description, matching and skill-gap analysis are skipped.</span>
+              <span id="job-description-count" class="counter"></span>
+            </div>
+          </div>
+
+          <div id="upload-alert" class="alert-slot" aria-live="polite"></div>
+
+          <div class="form__actions">
+            <button type="submit" class="button button--primary" id="analyze-button">Analyse resume</button>
+            <button type="button" class="button button--ghost" id="reset-button">Reset</button>
+          </div>
+        </form>
+
+        <ul class="facts" aria-label="About this service">
+          <li>Reports are kept in server memory for a limited time and are lost when the server restarts.</li>
+          <li>Scores are informational metrics. No calibrated ATS score is produced.</li>
+          <li>Your documents are not stored by this page.</li>
+        </ul>
+      </section>
+
+      <!-- Progress ---------------------------------------------------------------->
+      <section id="view-progress" class="view" aria-labelledby="progress-title" hidden>
+        <div class="card progress">
+          <div class="spinner" aria-hidden="true"></div>
+          <h1 id="progress-title" class="progress__title">Analysing your resume</h1>
+          <p class="progress__text">
+            This can take a few minutes. The server does not report intermediate progress, so
+            please keep this page open until the analysis finishes.
+          </p>
+          <p class="progress__elapsed">Elapsed time: <span id="progress-elapsed">0:00</span></p>
+          <ol class="progress__steps" aria-label="What the analysis does">
+            <li>Reads the document and checks its content</li>
+            <li>Extracts skills, experience, education, projects and certifications</li>
+            <li>Compares the resume with the job description, if one was provided</li>
+            <li>Prepares interview questions and reviews the results</li>
+          </ol>
+          <button type="button" class="button button--ghost" id="cancel-button">Cancel</button>
+        </div>
+      </section>
+
+      <!-- Results ----------------------------------------------------------------->
+      <section id="view-results" class="view" aria-labelledby="results-title" hidden>
+        <div class="results__header">
+          <div>
+            <h1 id="results-title">Analysis results</h1>
+            <p class="muted" id="results-expiry"></p>
+          </div>
+          <div class="results__actions">
+            <button type="button" class="button button--primary" id="pdf-button">Download PDF report</button>
+            <button type="button" class="button button--ghost" id="new-analysis-button">New analysis</button>
+          </div>
+        </div>
+
+        <div id="results-alert" class="alert-slot" aria-live="polite"></div>
+
+        <div id="expired-banner" class="alert alert--warning" role="alert" hidden>
+          <p class="alert__title">This report is no longer available</p>
+          <p>
+            The report has expired or the server was restarted. Reports are kept in server memory
+            for a limited time only. Run the analysis again to download the PDF or practise
+            interview questions.
+          </p>
+          <button type="button" class="button button--primary" id="expired-restart-button">Start a new analysis</button>
+        </div>
+
+        <div class="tabs" role="tablist" aria-label="Result sections" id="result-tabs">
+          <button type="button" role="tab" class="tabs__tab" id="tab-overview" aria-controls="panel-overview" aria-selected="true">Overview</button>
+          <button type="button" role="tab" class="tabs__tab" id="tab-profile" aria-controls="panel-profile" aria-selected="false" tabindex="-1">Resume profile</button>
+          <button type="button" role="tab" class="tabs__tab" id="tab-match" aria-controls="panel-match" aria-selected="false" tabindex="-1">Job match</button>
+          <button type="button" role="tab" class="tabs__tab" id="tab-review" aria-controls="panel-review" aria-selected="false" tabindex="-1">Review and safety</button>
+          <button type="button" role="tab" class="tabs__tab" id="tab-interview" aria-controls="panel-interview" aria-selected="false" tabindex="-1">Interview practice</button>
+        </div>
+
+        <div role="tabpanel" class="tabs__panel" id="panel-overview" aria-labelledby="tab-overview" tabindex="0"></div>
+        <div role="tabpanel" class="tabs__panel" id="panel-profile" aria-labelledby="tab-profile" tabindex="0" hidden></div>
+        <div role="tabpanel" class="tabs__panel" id="panel-match" aria-labelledby="tab-match" tabindex="0" hidden></div>
+        <div role="tabpanel" class="tabs__panel" id="panel-review" aria-labelledby="tab-review" tabindex="0" hidden></div>
+
+        <div role="tabpanel" class="tabs__panel" id="panel-interview" aria-labelledby="tab-interview" tabindex="0" hidden>
+          <section class="card" aria-labelledby="stored-questions-title">
+            <h2 id="stored-questions-title">Questions from the analysis</h2>
+            <p class="muted">Questions prepared during the analysis. Choose one to practise an answer and get feedback.</p>
+            <div id="stored-questions"></div>
+          </section>
+
+          <section class="card" aria-labelledby="generate-title">
+            <h2 id="generate-title">Generate new questions</h2>
+            <form id="generate-form" class="form form--inline" novalidate>
+              <fieldset class="form__fieldset">
+                <legend class="form__label">Levels</legend>
+                <label class="check"><input type="checkbox" name="level" value="beginner" checked> Beginner</label>
+                <label class="check"><input type="checkbox" name="level" value="intermediate" checked> Intermediate</label>
+                <label class="check"><input type="checkbox" name="level" value="advanced" checked> Advanced</label>
+              </fieldset>
+              <div class="form__field form__field--compact">
+                <label class="form__label" for="count-per-level">Questions per level</label>
+                <select id="count-per-level" name="count_per_level"></select>
+              </div>
+              <div class="form__actions">
+                <button type="submit" class="button button--primary" id="generate-button">Generate questions</button>
+              </div>
+            </form>
+            <div id="generate-alert" class="alert-slot" aria-live="polite"></div>
+            <div id="generated-questions"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>Resume Intelligence Platform. Results are generated by AI models and can contain mistakes; review them before relying on them.</p>
+    </footer>
+  </body>
+</html>

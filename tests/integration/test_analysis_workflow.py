@@ -107,8 +107,8 @@ async def test_approve_end_to_end() -> None:
     assert report.meta.prompt_versions == {
         "resume": "resume@1.0.0",
         "interview": "interview@1.1.0",
-        "skill_gap": "skill_gap@1.0.0",
-        "critic": "critic@1.1.0",
+        "skill_gap": "skill_gap@1.2.0",
+        "critic": "critic@1.4.0",
     }
     assert report.match.ats_score.status == "not_calibrated"
     assert await store.get(str(report.report_id)) == report
@@ -193,6 +193,52 @@ async def test_unresolved_revision_is_flagged_with_its_issues() -> None:
     assert [i.message for i in report.critic.issues] == ["Still unrelated to the profile."]
     assert fake.routes.count("critic") == 2
     assert await store.get(str(report.report_id)) == report
+
+
+async def test_data_scientist_paraphrase_evidence_is_not_flagged_through_the_cap() -> None:
+    """M11 Phase 2 (H-1): the manually tested Data Scientist case, end to end.
+
+    The skill-gap agent correctly lists data preprocessing and machine learning as
+    matching on described work only. A real interview issue forces one revision
+    (max_revisions=1), so any deterministic contradiction on that evidence would
+    survive the cap and flag the report.
+    """
+    from tests.unit.test_skill_evidence import DS_JOB, DS_RESUME, ds_profile
+
+    ds_gap = json_reply(
+        gap(
+            ["Python", "SQL", "data preprocessing", "machine learning"],
+            [],
+            ["Build a Tableau dashboard from a public dataset."],
+        ).model_dump()
+    )
+    interview_issue = critic_issue("interview", "Question is not about the profile.")
+    first = json_reply({"issues": [interview_issue]})
+    fake = scripted(
+        first,
+        NO_ISSUES,
+        resume=(json_reply(ds_profile().model_dump()),),
+        interview=(INTERVIEW_REPLY,) * 2,
+        skill_gap=(ds_gap,) * 2,
+    )
+    workflow, _ = await workflow_for(fake)
+    report = await workflow.run(resume_text=DS_RESUME, job_description=DS_JOB)
+    assert (report.critic.verdict, report.critic.revisions) == ("approve", 1)
+    assert not [i for i in report.critic.issues if i.agent == "skill_gap"]
+    assert fake.routes.count("skill_gap") == 1  # never targeted for revision
+    assert fake.routes.count("critic") == 2
+    claims = json.loads(
+        user_message(fake.bodies_for("critic")[0])
+        .split("<agent_outputs>\n", 1)[1]
+        .split("\n</agent_outputs>", 1)[0]
+    )["claims_to_verify"]
+    for n in (2, 3):
+        assert {
+            "agent": "skill_gap",
+            "field": f"matching_skills[{n}]",
+            "expectation": "resume_supports",
+        } in claims
+    assert report.match.ats_score.status == "not_calibrated"
 
 
 async def test_prompt_guard_high_score_flags_but_never_rejects() -> None:

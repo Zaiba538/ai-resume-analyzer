@@ -269,7 +269,12 @@ def gap(matching, missing, recommendations=()) -> SkillGapReport:
 
 def test_consistent_skill_gap() -> None:
     result = check_skill_gap(gap(["Python", "Kubernetes"], ["Apache Airflow"]), RESUME, JOB)
-    assert result.issues == [] and result.ambiguous == []
+    assert result.issues == []
+    # M11 Phase 2 (F3): a missing skill not named in the resume is still verified
+    # by the LLM, which looks for evidence in Experience and Projects.
+    assert [(c.field, c.expectation) for c in result.ambiguous] == [
+        ("missing_skills[0]", "resume_lacks")
+    ]
 
 
 def test_missing_skill_that_resume_shows_is_a_contradiction() -> None:
