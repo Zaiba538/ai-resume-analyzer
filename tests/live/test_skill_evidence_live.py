@@ -59,5 +59,5 @@ async def test_experience_evidence_and_preferred_skills(llm) -> None:
     verdict = review.output
     print(f"critic: verdict={verdict.verdict} issues="
           f"{[(i.agent, i.field, i.severity) for i in verdict.issues]}")  # fmt: skip
-    assert review.prompt_id == "critic@1.4.0"
+    assert review.prompt_id == "critic@1.5.0"
     assert verdict.verdict != "flagged"

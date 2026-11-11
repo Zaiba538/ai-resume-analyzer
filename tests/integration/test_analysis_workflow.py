@@ -108,7 +108,7 @@ async def test_approve_end_to_end() -> None:
         "resume": "resume@1.0.0",
         "interview": "interview@1.1.0",
         "skill_gap": "skill_gap@1.2.0",
-        "critic": "critic@1.4.0",
+        "critic": "critic@1.5.0",
     }
     assert report.match.ats_score.status == "not_calibrated"
     assert await store.get(str(report.report_id)) == report

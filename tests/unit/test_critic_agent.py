@@ -95,7 +95,7 @@ async def test_approve_when_nothing_is_wrong() -> None:
     result = await run(fake, full_input())
     assert result.output.verdict == "approve"
     assert result.output.issues == [] and result.output.revise_targets == []
-    assert result.prompt_id == CRITIC_PROMPT.id == "critic@1.4.0"
+    assert result.prompt_id == CRITIC_PROMPT.id == "critic@1.5.0"
     assert fake.bodies[0]["model"] == "openai/gpt-oss-120b"
 
 

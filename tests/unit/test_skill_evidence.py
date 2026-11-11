@@ -259,7 +259,7 @@ def test_skill_gap_prompt_looks_for_evidence_across_the_profile() -> None:
 
 
 def test_reviewer_prompt_checks_every_section_and_claim_direction() -> None:
-    assert CRITIC_PROMPT.id == "critic@1.4.0"
+    assert CRITIC_PROMPT.id == "critic@1.5.0"
     text = CRITIC_PROMPT.system
     for section in ("Technical Skills", "Experience", "Projects"):
         assert section in text, section
@@ -849,7 +849,7 @@ def test_combined_claim_absent_from_the_job_is_still_a_contradiction() -> None:
 
 
 def test_reviewer_prompt_rejects_preferred_skills_in_missing_skills() -> None:
-    assert CRITIC_PROMPT.id == "critic@1.4.0"
+    assert CRITIC_PROMPT.id == "critic@1.5.0"
     lowered = CRITIC_PROMPT.system.casefold()
     for word in ("preferred", "optional", "nice-to-have", "bonus"):
         assert word in lowered, word
@@ -864,7 +864,7 @@ def test_reviewer_prompt_rejects_preferred_skills_in_missing_skills() -> None:
 
 
 def test_reviewer_prompt_requires_concrete_evidence_for_four_skills() -> None:
-    assert CRITIC_PROMPT.id == "critic@1.4.0"
+    assert CRITIC_PROMPT.id == "critic@1.5.0"
     text = CRITIC_PROMPT.system
     lowered = text.casefold()
     assert "for a resume_supports claim on these skills, require concrete evidence" in lowered
