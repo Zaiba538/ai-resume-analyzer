@@ -79,14 +79,65 @@ async def test_failed_generation_never_logged_or_returned(captured_logs, backend
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", [401, 429, 500])
-async def test_upstream_errors_never_expose_key_or_body(captured_logs, status: int) -> None:
+async def test_upstream_errors_never_expose_key_or_body(
+    captured_logs, backend_info_logs, status: int
+) -> None:
     fake = FakeGroqChat().queue(*(Reply(status=status) for _ in range(3)))
     with pytest.raises(LLMError) as info:
         await _run(fake)
+    assert captured_logs.events("llm_call_completed")  # the failure was logged at INFO
     for leaked in (FAKE_API_KEY, "scripted failure", RESUME_CANARY, JD_CANARY):
         assert leaked not in info.value.message
         assert leaked not in captured_logs.text
     assert info.value.__cause__ is None  # upstream exception (with body) is not chained
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reply", "replies"),
+    [
+        # A non-schema 400 whose body carries a failed generation (resume-derived output).
+        (Reply(status=400, error_code="model_decommissioned"), 1),
+        (Reply(status=401), 1),
+        (Reply(status=500), 3),
+    ],
+)
+async def test_upstream_diagnostics_log_metadata_only(
+    captured_logs, backend_info_logs, reply: Reply, replies: int
+) -> None:
+    """M3: status, request ID and class are logged; nothing sensitive ever is."""
+    from backend.core.logging import ALLOWED_FIELDS
+
+    tagged = Reply(
+        status=reply.status,
+        error_code=reply.error_code,
+        headers={"x-request-id": "req_privacy01"},
+    )
+    fake = FakeGroqChat().queue(*([tagged] * replies))
+    with pytest.raises(LLMError):
+        await _run(fake)
+
+    (record,) = captured_logs.events("llm_call_completed")
+    assert record["upstream_http_status"] == reply.status
+    assert record["upstream_request_id"] == "req_privacy01"
+    assert record["error_type"].endswith("Error")
+    assert set(record) <= ALLOWED_FIELDS | {"ts", "level", "logger", "event"}
+
+    text = captured_logs.text
+    for leaked in (
+        FAKE_API_KEY,
+        "Bearer",
+        "authorization",
+        "Authorization",
+        "scripted failure",  # upstream error message (raw body)
+        "invalid_request_error",  # upstream error type (raw body)
+        "SECRET-FAILED-GENERATION",  # failed generation in the body
+        "model_decommissioned",  # upstream error code (raw body)
+        RESUME_CANARY,
+        JD_CANARY,
+        "Needs ",  # prompt text
+    ):
+        assert leaked not in text, leaked
 
 
 def test_api_key_not_rendered_by_clients() -> None:

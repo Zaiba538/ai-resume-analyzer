@@ -2,13 +2,26 @@
 
 Messages are fixed and user-safe. Upstream response bodies, which may echo
 prompt content or contain failed generations, are never included or logged.
+
+``upstream_diagnostics`` extracts only metadata for the logs (Phase 3, M3): the
+exception class, the upstream HTTP status and Groq's ``x-request-id`` response
+header. Nothing else is read from the exception: not its message, body,
+request or other headers, which can carry prompts, outputs or credentials.
 """
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
+
 import groq
 
 from backend.core.errors import AppError
+
+# Groq request IDs are short ASCII tokens (for example "req_01j..."). Any other
+# value is dropped rather than logged.
+_REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+_REQUEST_ID_HEADER = "x-request-id"
 
 
 class LLMError(AppError):
@@ -69,6 +82,44 @@ def map_groq_error(exc: groq.GroqError) -> LLMError:
     if isinstance(exc, groq.AuthenticationError | groq.PermissionDeniedError):
         return UpstreamAuthError()
     return LLMError()
+
+
+@dataclass(frozen=True)
+class UpstreamDiagnostics:
+    """Log-safe metadata of a failed upstream call."""
+
+    error_type: str
+    http_status: int | None = None
+    request_id: str | None = None
+
+    def log_fields(self) -> dict[str, str | int | None]:
+        """Fields for ``extra``; each is in the log formatter's allowlist."""
+        return {
+            "error_type": self.error_type,
+            "upstream_http_status": self.http_status,
+            "upstream_request_id": self.request_id,
+        }
+
+
+def upstream_diagnostics(exc: BaseException) -> UpstreamDiagnostics:
+    """Metadata of an upstream failure; missing or malformed values become None.
+
+    Never raises: diagnostics must not replace the typed error being reported.
+    """
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, bool) or not isinstance(status, int) or not 100 <= status <= 599:
+        status = None
+
+    request_id: str | None = None
+    try:
+        headers = getattr(getattr(exc, "response", None), "headers", None)
+        value = headers.get(_REQUEST_ID_HEADER) if headers is not None else None
+    except Exception:  # malformed response object: report what is known
+        value = None
+    if isinstance(value, str) and _REQUEST_ID.fullmatch(value):
+        request_id = value
+
+    return UpstreamDiagnostics(type(exc).__name__, status, request_id)
 
 
 def monitor_code(error: LLMError) -> str:

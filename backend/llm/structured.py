@@ -19,7 +19,9 @@ Flow for one call:
 
 Every outcome is reported to the upstream monitor as a passive signal. Logs
 carry model, role, token counts, attempts and duration, never prompts, outputs,
-failed generations or keys.
+failed generations or keys. A failed upstream call also logs the exception
+class, the upstream HTTP status and Groq's request ID (``upstream_diagnostics``),
+so a rejected key, a bad request and an outage can be told apart.
 """
 
 from __future__ import annotations
@@ -39,9 +41,11 @@ from backend.llm.client import LLMClients, LLMRole
 from backend.llm.errors import (
     InvalidLLMOutputError,
     LLMError,
+    UpstreamDiagnostics,
     is_schema_generation_failure,
     map_groq_error,
     monitor_code,
+    upstream_diagnostics,
 )
 from backend.llm.prompts import Message
 from backend.schemas.security import SecurityFlag
@@ -172,13 +176,25 @@ class StructuredLLM:
                 result = await runnable.ainvoke(conversation)
             except groq.BadRequestError as exc:
                 if not is_schema_generation_failure(exc):
-                    raise self._fail(role, map_groq_error(exc), started, attempt) from None
+                    raise self._fail(
+                        role,
+                        map_groq_error(exc),
+                        started,
+                        attempt,
+                        diagnostics=upstream_diagnostics(exc),
+                    ) from None
                 if monitor is not None:
                     monitor.record_request_outcome(True)
                 conversation.append(("user", REPAIR_INSTRUCTION))
                 continue
             except groq.GroqError as exc:
-                raise self._fail(role, map_groq_error(exc), started, attempt) from None
+                raise self._fail(
+                    role,
+                    map_groq_error(exc),
+                    started,
+                    attempt,
+                    diagnostics=upstream_diagnostics(exc),
+                ) from None
 
             if monitor is not None:
                 monitor.record_request_outcome(True)
@@ -206,11 +222,18 @@ class StructuredLLM:
         raise self._fail(role, InvalidLLMOutputError(), started, MAX_REPAIRS + 1, report=False)
 
     def _fail(
-        self, role: LLMRole, error: LLMError, started: float, attempts: int, *, report: bool = True
+        self,
+        role: LLMRole,
+        error: LLMError,
+        started: float,
+        attempts: int,
+        *,
+        report: bool = True,
+        diagnostics: UpstreamDiagnostics | None = None,
     ) -> LLMError:
         if report and self._clients.monitor is not None:
             self._clients.monitor.record_request_outcome(False, monitor_code(error))
-        self._log(role, started, attempts, 0, 0, error.code)
+        self._log(role, started, attempts, 0, 0, error.code, diagnostics)
         return error
 
     def _log(
@@ -221,16 +244,17 @@ class StructuredLLM:
         input_tokens: int,
         output_tokens: int,
         error_code: str | None,
+        diagnostics: UpstreamDiagnostics | None = None,
     ) -> None:
-        logger.info(
-            "llm_call_completed",
-            extra={
-                "node": role,
-                "model": self._clients.model_for(role),
-                "timing_ms": round((time.perf_counter() - started) * 1000, 2),
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "attempts": attempts,
-                "error_code": error_code,
-            },
-        )
+        extra: dict[str, Any] = {
+            "node": role,
+            "model": self._clients.model_for(role),
+            "timing_ms": round((time.perf_counter() - started) * 1000, 2),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "attempts": attempts,
+            "error_code": error_code,
+        }
+        if diagnostics is not None:  # upstream failures only
+            extra.update(diagnostics.log_fields())
+        logger.info("llm_call_completed", extra=extra)

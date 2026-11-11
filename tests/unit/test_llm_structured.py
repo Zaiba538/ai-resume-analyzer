@@ -269,3 +269,159 @@ async def test_clients_are_cached_and_closed() -> None:
     await injected.aclose()
     assert not shared.is_closed  # injected clients belong to the caller
     await shared.aclose()
+
+
+# --- Upstream error diagnostics (Phase 3, M3) -----------------------------------------------
+#
+# Failed upstream calls log the exception class, the upstream HTTP status and Groq's
+# request ID next to the existing error code, so operators can tell a rejected key, a
+# bad request and an outage apart. Missing metadata is logged as null.
+
+REQUEST_ID = "req_01jdiag7example"
+DIAGNOSTIC_FIELDS = ("error_type", "upstream_http_status", "upstream_request_id")
+
+
+@pytest.fixture
+def backend_info_logs():
+    import logging
+
+    logging.getLogger("backend").setLevel(logging.INFO)
+    yield
+
+
+def _failure_record(captured_logs) -> dict:
+    (record,) = captured_logs.events("llm_call_completed")
+    return record
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reply", "replies", "error_type", "status", "code"),
+    [
+        (
+            Reply(status=400, error_code="model_decommissioned"),
+            1,
+            "BadRequestError",
+            400,
+            "upstream_error",
+        ),
+        (Reply(status=401), 1, "AuthenticationError", 401, "upstream_auth_failed"),
+        (Reply(status=403), 1, "PermissionDeniedError", 403, "upstream_auth_failed"),
+        (Reply(status=404), 1, "NotFoundError", 404, "upstream_error"),
+        (Reply(status=429), 3, "RateLimitError", 429, "upstream_rate_limited"),
+        (Reply(status=500), 3, "InternalServerError", 500, "upstream_error"),
+    ],
+)
+async def test_upstream_failure_logs_status_request_id_and_class(
+    captured_logs, backend_info_logs, reply, replies, error_type, status, code
+) -> None:
+    tagged = Reply(
+        status=reply.status, error_code=reply.error_code, headers={"x-request-id": REQUEST_ID}
+    )
+    fake = FakeGroqChat().queue(*([tagged] * replies))
+    with pytest.raises(LLMError) as info:
+        await _generate(_llm(fake))
+    assert info.value.code == code  # typed mapping unchanged
+    record = _failure_record(captured_logs)
+    assert record["error_code"] == code
+    assert record["error_type"] == error_type
+    assert record["upstream_http_status"] == status
+    assert record["upstream_request_id"] == REQUEST_ID
+
+
+@pytest.mark.asyncio
+async def test_missing_request_id_is_logged_as_null(captured_logs, backend_info_logs) -> None:
+    fake = FakeGroqChat().queue(*(Reply(status=500) for _ in range(3)))
+    with pytest.raises(LLMError):
+        await _generate(_llm(fake))
+    record = _failure_record(captured_logs)
+    assert (record["upstream_http_status"], record["upstream_request_id"]) == (500, None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("exception", "error_type", "code"),
+    [
+        (httpx.ConnectError("refused"), "APIConnectionError", "upstream_error"),
+        (httpx.ReadTimeout("slow"), "APITimeoutError", "upstream_timeout"),
+    ],
+)
+async def test_transport_failure_has_no_response_metadata(
+    captured_logs, backend_info_logs, exception, error_type, code
+) -> None:
+    fake = FakeGroqChat().queue(*(Reply(exception=exception) for _ in range(3)))
+    with pytest.raises(LLMError) as info:
+        await _generate(_llm(fake))
+    assert info.value.code == code
+    record = _failure_record(captured_logs)
+    assert record["error_type"] == error_type
+    assert (record["upstream_http_status"], record["upstream_request_id"]) == (None, None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "request_id",
+    ["req 01 with spaces", "<script>alert(1)</script>", "x" * 200, ""],
+)
+async def test_unsafe_request_id_is_not_logged(
+    captured_logs, backend_info_logs, request_id
+) -> None:
+    fake = FakeGroqChat().queue(Reply(status=401, headers={"x-request-id": request_id}))
+    with pytest.raises(UpstreamAuthError):
+        await _generate(_llm(fake))
+    record = _failure_record(captured_logs)
+    assert record["upstream_request_id"] is None
+    assert record["upstream_http_status"] == 401
+    if request_id:
+        assert request_id not in captured_logs.text
+
+
+@pytest.mark.asyncio
+async def test_success_and_invalid_output_carry_no_upstream_fields(
+    captured_logs, backend_info_logs
+) -> None:
+    await _generate(_llm(FakeGroqChat().queue(json_reply(VALID))))
+    with pytest.raises(InvalidLLMOutputError):
+        await _generate(_llm(FakeGroqChat().queue(Reply("garbage"), Reply("garbage"))))
+    success, invalid = captured_logs.events("llm_call_completed")
+    assert success["error_code"] is None and invalid["error_code"] == "invalid_llm_output"
+    for record in (success, invalid):
+        assert not set(DIAGNOSTIC_FIELDS) & set(record)
+
+
+class _BrokenHeaders:
+    def get(self, name: str):
+        raise RuntimeError("headers unavailable")
+
+
+class _FakeUpstreamError(Exception):
+    def __init__(self, status_code=None, headers=None, response=True) -> None:
+        super().__init__("upstream failure with private body")
+        self.status_code = status_code
+        if response:
+            self.response = type("Response", (), {"headers": headers})()
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (_FakeUpstreamError(502, {"x-request-id": "req_abc"}), (502, "req_abc")),
+        (_FakeUpstreamError("502", {"x-request-id": "req_abc"}), (None, "req_abc")),
+        (_FakeUpstreamError(True, None), (None, None)),
+        (_FakeUpstreamError(99, None), (None, None)),
+        (_FakeUpstreamError(600, None), (None, None)),
+        (_FakeUpstreamError(500, _BrokenHeaders()), (500, None)),
+        (_FakeUpstreamError(500, {"x-request-id": 12345}), (500, None)),
+        (_FakeUpstreamError(500, {"x-request-id": "req_ü_nonascii"}), (500, None)),
+        (_FakeUpstreamError(None, None, response=False), (None, None)),
+        (ValueError("no metadata at all"), (None, None)),
+    ],
+)
+def test_upstream_diagnostics_handle_missing_or_malformed_metadata(exc, expected) -> None:
+    from backend.llm.errors import upstream_diagnostics
+
+    diagnostics = upstream_diagnostics(exc)
+    assert (diagnostics.http_status, diagnostics.request_id) == expected
+    assert diagnostics.error_type == type(exc).__name__
+    assert set(diagnostics.log_fields()) == set(DIAGNOSTIC_FIELDS)
+    assert "private body" not in repr(diagnostics.log_fields())

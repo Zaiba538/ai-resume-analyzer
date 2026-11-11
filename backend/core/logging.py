@@ -44,6 +44,11 @@ ALLOWED_FIELDS = frozenset(
         "error_code",
         "component",
         "upstream_status",
+        # Failed LLM calls (backend.llm.errors.upstream_diagnostics): exception
+        # class name, upstream HTTP status and Groq's x-request-id, never bodies.
+        "error_type",
+        "upstream_http_status",
+        "upstream_request_id",
         "models_present",
         "file_type",
         "file_size_bytes",
