@@ -28,6 +28,7 @@ from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from backend import __version__
+from backend.api.document_gate import DocumentProcessingGate
 from backend.api.rate_limits import (
     ANALYZE_429_DESCRIPTION,
     FRONTEND_MOUNT_NAME,
@@ -154,8 +155,18 @@ def create_app(
     rate_limiter = RateLimiter.from_settings(settings)
     analyze_gate = AnalyzeConcurrencyGate(settings.analyze_max_concurrent)
 
+    # Phase 3 (M1): one document-processing gate shared by /parse, /match and /analyze,
+    # for one lifespan at a time (a closed gate is replaced when a lifespan starts).
+    def new_document_gate() -> DocumentProcessingGate:
+        return DocumentProcessingGate(
+            settings.parse_max_concurrent, settings.parse_deadline_seconds
+        )
+
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(app_: FastAPI) -> AsyncIterator[None]:
+        if app_.state.document_gate.closed:  # the same application started again
+            app_.state.document_gate = new_document_gate()
+        document_gate: DocumentProcessingGate = app_.state.document_gate
         readiness.set_ready(EMBEDDING_MODEL_LOADED, await embeddings.load())
         # M8 D7: register the PDF fonts once per process. Registration reads and
         # verifies the font files, so it runs off the event loop; it never raises.
@@ -172,6 +183,8 @@ def create_app(
             await report_store.stop()
             await upstream_monitor.stop()
             await llm_clients.aclose()
+            # This lifespan's gate only; it neither waits for nor stops a running worker.
+            document_gate.shutdown()
             logger.info("application_stopped", extra={"component": "app"})
 
     docs = settings.api_docs_enabled
@@ -194,6 +207,7 @@ def create_app(
     app.state.evaluation_workflow = evaluation_workflow
     app.state.rate_limiter = rate_limiter
     app.state.analyze_gate = analyze_gate
+    app.state.document_gate = new_document_gate()  # replaced by a later lifespan if closed
 
     register_exception_handlers(app)
     limited = [Depends(enforce_rate_limit)]

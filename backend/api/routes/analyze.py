@@ -21,6 +21,10 @@ Concurrency (M10, audit finding H1): an analysis slot is taken only after the
 whole upload has been received, and held through parsing and the workflow; it is
 released however they end. When no slot is free the request gets 429
 ``analysis_capacity_exceeded``. The rate limit runs earlier, before the body is read.
+
+Parsing also goes through the document-processing gate shared with /parse and
+/match (Phase 3, M1): 503 ``document_processing_busy`` when it is full, 504
+``document_processing_timeout`` when parsing outlives its deadline.
 """
 
 from __future__ import annotations
@@ -29,9 +33,9 @@ import logging
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from starlette.concurrency import run_in_threadpool
 
-from backend.api.deps import AnalysisWorkflowDep, SettingsDep
+from backend.api.deps import AnalysisWorkflowDep, DocumentGateDep, SettingsDep
+from backend.api.document_gate import DOCUMENT_BUSY_DESCRIPTION, DOCUMENT_TIMEOUT_DESCRIPTION
 from backend.api.rate_limits import AnalysisSlotDep
 from backend.api.uploads import parse_bool_field, read_multipart_upload
 from backend.parsing.service import ParseLimits, parse_document
@@ -58,8 +62,11 @@ _ERRORS = {
             "or unsupported language"
         ),
         502: "Upstream LLM error or invalid model output",
-        503: "LLM not configured, model unavailable, upstream rate limit or report store full",
-        504: "Upstream timeout or analysis deadline exceeded",
+        503: (
+            "LLM not configured, model unavailable, upstream rate limit or report store "
+            f"full, or {DOCUMENT_BUSY_DESCRIPTION}"
+        ),
+        504: (f"Upstream timeout or analysis deadline exceeded, or {DOCUMENT_TIMEOUT_DESCRIPTION}"),
     }.items()
 }
 
@@ -88,7 +95,11 @@ _REQUEST_BODY = {
     openapi_extra={"requestBody": _REQUEST_BODY},
 )
 async def analyze(
-    request: Request, settings: SettingsDep, workflow: AnalysisWorkflowDep, slot: AnalysisSlotDep
+    request: Request,
+    settings: SettingsDep,
+    workflow: AnalysisWorkflowDep,
+    slot: AnalysisSlotDep,
+    gate: DocumentGateDep,
 ) -> JSONResponse:
     form = await read_multipart_upload(
         request,
@@ -104,7 +115,7 @@ async def analyze(
     )
     # The upload is complete: only now take an analysis slot (429 when none is free).
     with slot.hold():
-        parsed = await run_in_threadpool(parse_document, form.filename, form.file_bytes, limits)
+        parsed = await gate.run(parse_document, form.filename, form.file_bytes, limits)
         report = await workflow.run(
             resume_text=parsed.text, job_description=form.fields.get(JOB_DESCRIPTION_FIELD)
         )

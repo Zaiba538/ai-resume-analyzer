@@ -181,6 +181,7 @@ the application at start-up with a validation error.
 | `ANALYSIS_DEADLINE_SECONDS`, `INTERVIEW_DEADLINE_SECONDS`, `EVALUATION_DEADLINE_SECONDS` | No | Request deadlines. |
 | `MAX_UPLOAD_BYTES`, `MAX_PDF_PAGES`, `MAX_EXTRACTED_CHARS`, `MAX_JOB_DESCRIPTION_CHARS`, `MAX_ANSWER_CHARS` | No | Input limits. |
 | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_*`, `RATE_LIMIT_MAX_TRACKED_KEYS`, `ANALYZE_MAX_CONCURRENT` | No | Keep rate limiting enabled in production. |
+| `PARSE_MAX_CONCURRENT`, `PARSE_DEADLINE_SECONDS` | No | Documents parsed at once across `/parse`, `/match` and `/analyze` (default 2), and the soft parsing deadline (default 30 s). See section 10. |
 | `EMBEDDING_MODEL_NAME`, `EMBEDDING_MODEL_REVISION` | No | Pinned model and revision. |
 | `API_DOCS_ENABLED` | No | Keep `false` in production (section 9). |
 | `CSP_FRAME_ANCESTORS` | No | Who may embed the app in a frame. The value contains spaces and single quotes. Set it without surrounding double quotes in tools that pass values literally, such as `docker run --env-file`: the validator accepts a double-quoted value, which then produces an invalid `frame-ancestors` directive. |
@@ -370,6 +371,13 @@ Verified:
 - `ANALYZE_MAX_CONCURRENT` (default 2, maximum 8) caps simultaneous analyses
   in the single process; further requests get 429
   `analysis_capacity_exceeded`.
+- `PARSE_MAX_CONCURRENT` (default 2, maximum 8) caps documents parsed at the
+  same time by `/parse`, `/match` and `/analyze` together; further requests get
+  503 `document_processing_busy`. `PARSE_DEADLINE_SECONDS` (default 30) bounds
+  how long a request waits for parsing (then 504 `document_processing_timeout`).
+  This deadline is soft: Python cannot stop a running thread, so a parse that
+  outlives it keeps running, and keeps its slot, until it finishes. A parse that
+  never finishes would hold its slot until the process restarts.
 
 Recommended: run exactly one container with one Uvicorn process. Scale up
 (more CPU and memory), not out.

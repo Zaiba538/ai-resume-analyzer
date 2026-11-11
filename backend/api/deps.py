@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends, Request
 
+from backend.api.document_gate import DocumentProcessingGate
 from backend.core.config import Settings
 from backend.core.rate_limit import RateLimiter
 from backend.graph.analysis import AnalysisWorkflow
@@ -69,6 +70,10 @@ def get_analyze_gate(request: Request) -> AnalyzeConcurrencyGate:
     return request.app.state.analyze_gate
 
 
+def get_document_gate(request: Request) -> DocumentProcessingGate:
+    return request.app.state.document_gate
+
+
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 LLMClientsDep = Annotated[LLMClients, Depends(get_llm_clients)]
 EmbeddingServiceDep = Annotated[EmbeddingService, Depends(get_embedding_service)]
@@ -78,3 +83,4 @@ ReportStoreDep = Annotated[ReportStore, Depends(get_report_store)]
 AnalysisWorkflowDep = Annotated[AnalysisWorkflow, Depends(get_analysis_workflow)]
 InterviewServiceDep = Annotated[InterviewQuestionService, Depends(get_interview_service)]
 EvaluationWorkflowDep = Annotated[EvaluationWorkflow, Depends(get_evaluation_workflow)]
+DocumentGateDep = Annotated[DocumentProcessingGate, Depends(get_document_gate)]

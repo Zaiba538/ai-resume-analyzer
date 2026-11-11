@@ -21,7 +21,8 @@ from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from backend.api.deps import EmbeddingServiceDep, SettingsDep
+from backend.api.deps import DocumentGateDep, EmbeddingServiceDep, SettingsDep
+from backend.api.document_gate import DOCUMENT_BUSY_DESCRIPTION, DOCUMENT_TIMEOUT_DESCRIPTION
 from backend.api.uploads import read_multipart_upload
 from backend.core.errors import AppError
 from backend.parsing.service import ParseLimits, parse_document
@@ -61,7 +62,11 @@ _ERRORS = {
         413: "File or request too large",
         415: "Unsupported media type or file type",
         422: "Invalid input, unreadable document, limits exceeded or unsupported language",
-        503: "Semantic similarity model not available",
+        503: (
+            "Semantic similarity model not available (`embedding_model_unavailable`), or "
+            f"{DOCUMENT_BUSY_DESCRIPTION}"
+        ),
+        504: f"The document took too long: {DOCUMENT_TIMEOUT_DESCRIPTION}",
     }.items()
 }
 _REQUEST_BODY = {
@@ -89,7 +94,10 @@ _REQUEST_BODY = {
     openapi_extra={"requestBody": _REQUEST_BODY},
 )
 async def match(
-    request: Request, settings: SettingsDep, embeddings: EmbeddingServiceDep
+    request: Request,
+    settings: SettingsDep,
+    embeddings: EmbeddingServiceDep,
+    gate: DocumentGateDep,
 ) -> MatchResult:
     embedder = embeddings.get()  # 503 before reading the body if the model is unavailable
     media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
@@ -107,7 +115,7 @@ async def match(
             max_pages=settings.max_pdf_pages,
             max_chars=settings.max_extracted_chars,
         )
-        parsed = await run_in_threadpool(parse_document, form.filename, form.file_bytes, limits)
+        parsed = await gate.run(parse_document, form.filename, form.file_bytes, limits)
         resume, source = parsed.text, parsed.file_type
     elif media_type == "application/json":
         try:

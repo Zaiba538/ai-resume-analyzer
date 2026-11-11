@@ -107,6 +107,7 @@ export const ERROR_MESSAGES = Object.freeze({
   // Limits
   rate_limited: "Too many requests. Please wait before trying again.",
   analysis_capacity_exceeded: "The server is busy with other analyses. Please try again shortly.",
+  document_processing_busy: "The server is busy processing other documents. Please try again shortly.",
   // Upstream AI service
   upstream_error: "The AI service returned an error. Please try again.",
   upstream_auth_failed: "The AI service is not available because of a server configuration problem.",
@@ -120,6 +121,8 @@ export const ERROR_MESSAGES = Object.freeze({
   service_unavailable: "The service is temporarily unavailable. Please try again later.",
   // Deadlines
   analysis_timeout: "The analysis did not finish in time. Please try again.",
+  document_processing_timeout:
+    "The document took too long to process. Please try a simpler or smaller file, or try again later.",
   interview_timeout: "Generating interview questions took too long. Please try again.",
   evaluation_timeout: "Evaluating the answer took too long. Please try again.",
   // PDF report

@@ -13,9 +13,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from starlette.concurrency import run_in_threadpool
 
-from backend.api.deps import SettingsDep
+from backend.api.deps import DocumentGateDep, SettingsDep
+from backend.api.document_gate import DOCUMENT_BUSY_DESCRIPTION, DOCUMENT_TIMEOUT_DESCRIPTION
 from backend.api.uploads import parse_bool_field, read_multipart_upload
 from backend.parsing.sections import detect_sections
 from backend.parsing.service import ParseLimits, parse_document
@@ -33,6 +33,8 @@ _ERRORS = {
         413: "File or request too large",
         415: "Unsupported, mismatched or protected file type",
         422: "Invalid upload, unreadable document, limits exceeded or unsupported language",
+        503: f"The server is busy: {DOCUMENT_BUSY_DESCRIPTION}",
+        504: f"The document took too long: {DOCUMENT_TIMEOUT_DESCRIPTION}",
     }.items()
 }
 
@@ -59,7 +61,9 @@ _REQUEST_BODY = {
     responses=_ERRORS,
     openapi_extra={"requestBody": _REQUEST_BODY},
 )
-async def parse_resume(request: Request, settings: SettingsDep) -> JSONResponse:
+async def parse_resume(
+    request: Request, settings: SettingsDep, gate: DocumentGateDep
+) -> JSONResponse:
     form = await read_multipart_upload(
         request,
         max_file_bytes=settings.max_upload_bytes,
@@ -72,7 +76,7 @@ async def parse_resume(request: Request, settings: SettingsDep) -> JSONResponse:
         max_pages=settings.max_pdf_pages,
         max_chars=settings.max_extracted_chars,
     )
-    parsed = await run_in_threadpool(parse_document, form.filename, form.file_bytes, limits)
+    parsed = await gate.run(parse_document, form.filename, form.file_bytes, limits)
     sections = detect_sections(parsed.text)
 
     warnings = [ApiWarning(code=w.code, message=w.message) for w in parsed.warnings]

@@ -137,6 +137,12 @@ class Settings(BaseSettings):
     # Concurrent /analyze requests in this process (enforced from M10 Phase 2).
     analyze_max_concurrent: int = Field(default=2, ge=1, le=8)
 
+    # Document processing (Phase 3, M1): documents parsed at the same time by
+    # /parse, /match and /analyze together, and the time a request waits for its
+    # document. The deadline is soft: it ends the request, not the worker thread.
+    parse_max_concurrent: int = Field(default=2, ge=1, le=8)
+    parse_deadline_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
+
     # Embeddings for semantic similarity (loaded once at start-up). The revision
     # pins exact model files on the Hugging Face Hub; remote code is never run.
     embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"

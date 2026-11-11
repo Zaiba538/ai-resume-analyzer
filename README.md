@@ -204,7 +204,8 @@ an invalid value stops the application at start-up.
 
 ### Optional
 
-`.env.example` lists most optional settings with comments. The main groups:
+`.env.example` lists every optional setting with comments (a few as
+commented-out lines, because changing them is rarely right). The main groups:
 
 | Group | Variables |
 |---|---|
@@ -216,9 +217,13 @@ an invalid value stops the application at start-up.
 | Interview | `MAX_ANSWER_CHARS` |
 | Embeddings | `EMBEDDING_MODEL_NAME`, `EMBEDDING_MODEL_REVISION` |
 | Rate limiting | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_*`, `RATE_LIMIT_MAX_TRACKED_KEYS`, `ANALYZE_MAX_CONCURRENT` |
+| Document processing | `PARSE_MAX_CONCURRENT`, `PARSE_DEADLINE_SECONDS` |
 
-These settings are not in `.env.example`; their defaults and allowed ranges
-are defined in `backend/core/config.py`:
+#### Defaults and allowed ranges (also in `.env.example`)
+
+These settings are also listed in `.env.example`; `GROQ_API_BASE_URL`,
+`CSP_FRAME_ANCESTORS` and `FRONTEND_DIR` appear there as commented-out lines.
+Their defaults and allowed ranges are defined in `backend/core/config.py`:
 
 | Variable | Default | Purpose |
 |---|---|---|
