@@ -212,16 +212,111 @@ The image `resume-intelligence:local` was built on Docker Engine 29.6.2
   loaded (section 7); with the model in the image this is a local load, not a
   download.
 
+### Font files and the Space repository (agreed workflow, not yet carried out)
+
+**Why all four fonts must be preserved (verified).** PDF reports need four
+fonts in `backend/assets/fonts/`: `DejaVuSans.ttf`, `DejaVuSans-Bold.ttf`,
+`NotoSansDevanagari-Regular.ttf` and `NotoSansDevanagari-Bold.ttf`. At
+start-up, `backend/reports/fonts.py` reads every font, checks its SHA-256
+against `fonts-manifest.json` in the same directory and parses it. Registration
+is all or nothing: if any font is missing, altered, or present only as an
+unresolved Git LFS pointer file, no font is registered, `/ready` reports
+`pdf_renderer_ready: false` (503) and the PDF endpoint returns 503
+`pdf_renderer_unavailable`. The licence files (`LICENSE-DejaVu.txt`,
+`OFL.txt`) belong with the fonts.
+
+**Current state in this repository (verified).** The four fonts are ordinary
+Git objects, not Git LFS objects, and `.gitattributes` marks `*.ttf` as
+`binary`. Hugging Face may reject binary files pushed to a Space repository
+unless they are stored with Xet or Git LFS.
+
+**This repository and its history stay untouched.** Moving the fonts to LFS
+here would rewrite the GitHub history. Instead, the Space gets its own
+repository, built from a clean snapshot of one pushed GitHub commit, and Git
+LFS is configured only inside that separate repository. Run every command
+below in a work folder **outside** this repository.
+
+1. **Snapshot.** From this repository, archive the pushed commit to a file
+   (not through a PowerShell pipe, which would corrupt the binary fonts). The
+   archive contains only tracked files, so `.env`, virtual environments and
+   caches cannot be included:
+
+   ```bash
+   git archive --format=zip -o <work>/snapshot-<commit>.zip <commit>
+   ```
+
+2. **Clone the Space.** Create the Space in Hugging Face (Docker SDK, Blank,
+   private, `GROQ_API_KEY` secret; see the settings above) and clone it.
+   Cloning the Space, rather than pushing a new repository to it, keeps its
+   first commit and avoids a force push:
+
+   ```bash
+   git clone https://huggingface.co/spaces/<owner>/<space> <work>/space
+   ```
+
+   Sign in through the Git credential prompt; never put a token in a command.
+
+3. **Extract.** Unpack the snapshot into the clone, replacing the Space's
+   template `README.md` and `.gitattributes`. In the clone,
+   `git rev-parse --show-toplevel` must print the clone's path, not this
+   repository's.
+
+4. **Configure Git LFS in the clone only.** Git LFS 3.7.1 is installed
+   locally. `--local` limits the setup to the clone (it installs the pre-push
+   hook that uploads LFS files), and `git lfs track` adds one `*.ttf` rule to
+   the clone's `.gitattributes`; that later rule takes precedence over the
+   existing `*.ttf binary` line:
+
+   ```bash
+   git lfs install --local
+   git lfs track "*.ttf"
+   ```
+
+5. **Check before committing.**
+
+   ```bash
+   git check-attr filter -- backend/assets/fonts/DejaVuSans.ttf
+   git add -A
+   git lfs status
+   ```
+
+   Expected: `filter: lfs`, and `git lfs status` lists the four `.ttf` files
+   to be committed as LFS objects.
+
+6. **Commit and check the LFS objects.** Commit with a message that names the
+   GitHub commit (for example `Deploy snapshot of
+   Zaiba538/ai-resume-analyzer@<commit>`), then:
+
+   ```bash
+   git lfs ls-files -l
+   ```
+
+   Expected: exactly four lines, one per font. Each LFS object ID is the
+   SHA-256 of the file's content, so it must equal that font's `sha256` in
+   `fonts-manifest.json`; a different value means the file changed and
+   start-up would reject it.
+
+7. **Push** with `git push origin main` in the clone (`origin` is the Space).
+
+**Verification on the Space** (see also section 11):
+
+- `GET /health` returns 200.
+- `GET /ready` returns 200 and `pdf_renderer_ready: true`. If it is `false`,
+  the fonts are missing or arrived as pointer files; the logs then show
+  `pdf_fonts_unavailable` with an `error_code` such as `font_hash_mismatch`.
+- One analysis of a synthetic resume (no real personal data) succeeds and its
+  PDF downloads as `application/pdf` and opens.
+
+**Updates.** The Space does not track GitHub. Each change pushed to GitHub
+reaches the Space only by repeating these steps from the new commit: a new
+snapshot, extracted into the Space clone, committed and pushed.
+
 ### Unresolved issues
 
-- **Font files.** The four bundled fonts in `backend/assets/fonts/` (`*.ttf`,
-  about 0.2–0.8 MB each) are binary files stored in this repository as
-  ordinary Git objects. Hugging Face may reject binary files pushed to a Space
-  repository unless they are stored with Xet or Git LFS; confirm against the
-  current documentation. Converting them in this repository would rewrite its
-  history, so how the files reach the Space (for example a separate snapshot
-  of the tracked files for the Space repository) is still to be decided. The
-  application needs these files: without them PDF rendering is not ready.
+- **Font files on Hugging Face.** The workflow above has not been carried out
+  yet. Whether the Space currently accepts a Git LFS push (Hugging Face stores
+  files with Xet) must be confirmed against the current documentation before
+  the first push.
 - **Client addresses behind the Spaces proxy.** The address the proxy connects
   from, and whether it sends `X-Forwarded-For` in a form Uvicorn will trust
   (section 9), are unknown. Until checked, all visitors may share one
@@ -520,8 +615,8 @@ URL; never paste the API key into commands or logs):
 Done: the `Dockerfile` (section 3), the Spaces front matter (section 4), a
 local build and smoke test, and the live Groq test suite (21 tests).
 
-1. Decide how the bundled font files reach the Space repository (section 4),
-   without rewriting this repository's history.
+1. Carry out the agreed font-file workflow in section 4, including verifying
+   Git LFS/Xet compatibility before the first Space push.
 2. Create the Space (Docker SDK, private) with `GROQ_API_KEY` as a secret, push
    to it, and run the checks in section 11 on the Space.
 3. Verify the Spaces proxy address and set `FORWARDED_ALLOW_IPS` if needed
