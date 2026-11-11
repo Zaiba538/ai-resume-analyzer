@@ -1,18 +1,19 @@
 # Deployment guide
 
-> **Status: not yet deployable as-is.** This repository contains no Dockerfile,
-> no Hugging Face Spaces configuration and no deployment pipeline. This guide
-> records what the application already does (verified from the code) and what
-> a deployment will need (recommendations). Nothing here has been tested on
-> Docker or on Hugging Face Spaces.
+> **Status: Docker image built and smoke-tested locally; not yet deployed to
+> Hugging Face Spaces.** The repository contains a production `Dockerfile`
+> (section 3) and the Hugging Face Spaces front matter at the top of
+> `README.md` (section 4). There is no automated deployment pipeline. The
+> open items before a Space deployment are listed in section 13.
 
 Each section separates three kinds of statement:
 
 - **Verified**: checked against the code in this repository or the pinned
   library versions (`uvicorn` 0.54.0, `huggingface_hub`, `groq` 0.37.1,
-  `langchain-groq` 1.1.3).
-- **Recommended**: proposed design for the Dockerfile and Space, not yet
-  implemented.
+  `langchain-groq` 1.1.3), or, where stated, in the local Docker verification
+  (section 3).
+- **Recommended**: guidance for operating a deployment, or a proposal not yet
+  carried out.
 - **Unresolved**: risks or facts that can only be confirmed on a running
   deployment.
 
@@ -23,8 +24,8 @@ Each section separates three kinds of statement:
 | Target | Status |
 |---|---|
 | Local development (Windows AMD64, Linux x86_64) | Supported and tested; see section 2. |
-| Standalone Docker container (Linux x86_64) | Planned; no Dockerfile yet. |
-| Hugging Face Spaces, Docker SDK | Planned; no Space configuration yet. |
+| Standalone Docker container (Linux x86_64) | Supported; image built and smoke-tested locally (section 3). |
+| Hugging Face Spaces, Docker SDK | Configured (`README.md` front matter, section 4); not yet deployed. |
 
 **Verified constraints for every target:**
 
@@ -64,7 +65,8 @@ uvicorn --factory backend.main:create_app --no-access-log --port 7860
 
 `.env` is only a local convenience. In Docker and on Spaces, configuration
 must come from real environment variables and secrets; `.env` must never be
-copied into an image (`.dockerignore` already excludes it).
+copied into an image (`.dockerignore` excludes it, and the `Dockerfile` copies
+only `requirements.txt`, `backend/` and `frontend/`).
 
 ---
 
@@ -82,77 +84,152 @@ copied into an image (`.dockerignore` already excludes it).
 - PDF fonts are bundled in `backend/assets/fonts/`; no font download is needed.
 - Reports, PDFs and rate-limit state are held in memory. The application
   itself writes no data files. The only expected disk writes are the
-  Hugging Face model cache (section 6). Whether any library writes temporary
-  files during uploads has not been checked.
-- `.dockerignore` already keeps `.env` files, `.git`, `.github`, virtual
+  Hugging Face model cache (section 6), which the Docker image fills during
+  the build.
+- `.dockerignore` keeps `.env` files, `.git`, `.github`, virtual
   environments, caches and all `*.pdf` / `*.docx` files out of the build
   context.
 
-### Recommended image design (not implemented)
+### The image (`Dockerfile`, verified)
 
-1. Base image `python:3.12-slim`, platform `linux/amd64`.
-2. Install only the runtime lock:
-   `python -m pip install --no-cache-dir --require-hashes -r requirements.txt`.
-   Do not install `requirements-dev.txt` or `requirements-legacy.txt`.
-3. Copy only what the app needs: `backend/` and `frontend/`. The legacy files
-   (`app.py`, `agents/`, `utils/`), `tests/` and `docs/` are not needed at run
-   time.
-4. Run as a non-root user with a writable home and Hugging Face cache
-   (section 6).
-5. Optionally download the pinned embedding model at build time (section 6).
-6. Start command (single process, all interfaces, port 7860):
+1. Base image `python:3.12-slim-bookworm`, pinned by digest, always built for
+   `linux/amd64` (the platform the lock is resolved for).
+2. Installs only the runtime lock, with hashes required, no dependency
+   resolution outside the lock and wheels only:
+   `python -m pip install --no-cache-dir --require-hashes --no-deps --only-binary=:all: -r requirements.txt`.
+   `requirements-dev.txt` and `requirements-legacy.txt` are not installed.
+3. Copies only what the app needs: `backend/` and `frontend/`. The legacy files
+   (`app.py`, `agents/`, `utils/`), `tests/` and `docs/` are not in the image.
+   The application code is owned by root and read-only for the runtime user.
+4. Runs as the non-root user `user` (UID/GID 1000) with home `/home/user` and
+   `HF_HOME=/home/user/.cache/huggingface` (section 6).
+5. Downloads the pinned embedding model during the build, as the runtime user,
+   checks that the application's loader finds it offline, and sets
+   `HF_HUB_OFFLINE=1` for run time (section 6).
+6. Start command (single process, all interfaces, port 7860; `EXPOSE 7860`):
 
    ```text
    uvicorn --factory backend.main:create_app --no-access-log --host 0.0.0.0 --port 7860
    ```
 
    Never add `--workers`, and do not set `WEB_CONCURRENCY` (section 10).
-7. A container health check against `GET /health`, not `GET /ready`
-   (section 7).
+7. `HEALTHCHECK` against `GET /health` (not `GET /ready`, section 7), using
+   Python's standard library: interval 30 s, timeout 5 s, start period 60 s,
+   3 retries.
+8. No secret is used at build time. `GROQ_API_KEY` is supplied only at run
+   time.
+
+Build and run (from the repository root):
+
+```bash
+docker build --platform linux/amd64 -t resume-intelligence:local .
+docker run --rm -p 7860:7860 -e GROQ_API_KEY resume-intelligence:local
+```
+
+`-e GROQ_API_KEY` without a value copies the key from the shell's environment
+into the container, so it never appears in the command line or the image.
+
+### Local verification (2026-11-11)
+
+The image `resume-intelligence:local` was built on Docker Engine 29.6.2
+(linux/amd64) and smoke-tested in a container on port 7860:
+
+- The build succeeded: every locked package installed from a wheel, and the
+  embedding model was downloaded and then loaded offline during the build.
+- Image metadata: architecture `amd64`, user `1000:1000`, exposed port
+  `7860/tcp`, about 568 MB uncompressed. Its environment variables and build
+  history contain no API key.
+- The container runs as the non-root user; `GET /health` and `GET /ready`
+  returned 200, and the embedding model loaded offline.
+- Through the web interface: the frontend rendered; resume upload and parsing,
+  profile extraction, job matching and skill-gap analysis, the Critic and
+  security checks, interview question generation, answer evaluation and PDF
+  report download all worked.
+- The live Groq test suite (`tests/live`, 21 tests) passed.
 
 ### Unresolved
 
-- Image size, memory use and build time have not been measured. CPU PyTorch
-  and the Sentence-Transformer dominate both.
-- Whether every locked package installs from a wheel on `python:3.12-slim`,
-  without build tools, has not been tested.
+- Memory use, start-up time and build time have not been measured. CPU
+  PyTorch and the Sentence-Transformer dominate all three.
+- Whether any library writes temporary files during uploads has not been
+  checked.
 
 ---
 
 ## 4. Hugging Face Spaces (Docker SDK)
 
-### Verified in this repository
+### Configuration prepared (verified in this repository)
 
 - The default `CSP_FRAME_ANCESTORS` is `'self' https://huggingface.co`, so the
   app may be embedded in a Space page on huggingface.co
   (`backend/core/config.py`).
 - `.env.example` already says to set `GROQ_API_KEY` as a Space secret.
-- `README.md` has **no** Spaces front matter.
+- `README.md` starts with the Space's YAML front matter:
+
+  ```yaml
+  ---
+  title: Resume Intelligence Platform
+  emoji: 📄
+  colorFrom: blue
+  colorTo: gray
+  sdk: docker
+  app_port: 7860
+  pinned: false
+  ---
+  ```
+
+  `sdk: docker` makes the Space build the repository's `Dockerfile`;
+  `app_port: 7860` matches the port Uvicorn listens on (section 8). The other
+  fields only affect how the Space is shown. GitHub renders the block as a
+  small table at the top of the README.
+- The image already meets the Spaces runtime requirements checked locally
+  (section 3): it runs as UID 1000 with a writable home and Hugging Face
+  cache, the embedding model is in the image (no download at start-up or after
+  a restart), and it listens on `0.0.0.0:7860`.
+
+### Deployment status: not yet completed
+
+- No Space has been created, nothing has been pushed to a Space repository,
+  and nothing in this section has been tested on Spaces yet.
+- The steps that remain are listed in section 13; the checks to run on the
+  Space are in section 11.
+
+### Space settings (to configure when the Space is created)
+
+| Setting | Value |
+|---|---|
+| SDK | Docker |
+| Secret `GROQ_API_KEY` | **Required.** Add it as a Space **secret**, never as a public variable, and never in the repository or image. Secrets are passed to the container as environment variables. |
+| Variables | None required; every other setting has a working default (section 5). Do not set `WEB_CONCURRENCY`, `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `SSL_CERT_FILE` or `SSL_CERT_DIR`. `FORWARDED_ALLOW_IPS` only after the proxy check below. |
+| Visibility | Private until the open items in section 13 are resolved. |
 
 ### Recommended (based on Hugging Face's Docker Spaces documentation; confirm against the current docs before relying on it)
 
-- A Docker Space is configured by YAML front matter at the top of the Space's
-  `README.md`, including `sdk: docker` and `app_port: 7860`. Adding this to
-  this repository's README would also change how GitHub shows the README; a
-  separate Space repository, or a README written for both, is a decision still
-  to be made.
-- Secrets and variables set in the Space settings are passed to the container
-  as environment variables. Set `GROQ_API_KEY` as a **secret**, never as a
-  public variable and never in the repository.
-- Spaces run the container as a non-root user (user ID 1000). The image must
-  give that user a writable home directory and Hugging Face cache.
-- Container storage is not persistent across restarts unless persistent
-  storage is added. Without it, the embedding model is downloaded again on
-  every restart unless it is baked into the image.
+- Container storage is not persistent across restarts. Reports are held in
+  memory and are lost on restart (section 10); the model is in the image and
+  is not affected.
 - Spaces apply a start-up time limit. The port opens only after the model has
-  loaded (section 7), so a slow download counts against it.
+  loaded (section 7); with the model in the image this is a local load, not a
+  download.
 
-### Unresolved
+### Unresolved issues
 
-- The address the Spaces proxy connects from, and whether it sends
-  `X-Forwarded-For` in a form Uvicorn will trust (section 9). Until checked,
-  all visitors may share one rate-limit identity.
-- Available CPU and memory on the chosen Space hardware.
+- **Font files.** The four bundled fonts in `backend/assets/fonts/` (`*.ttf`,
+  about 0.2–0.8 MB each) are binary files stored in this repository as
+  ordinary Git objects. Hugging Face may reject binary files pushed to a Space
+  repository unless they are stored with Xet or Git LFS; confirm against the
+  current documentation. Converting them in this repository would rewrite its
+  history, so how the files reach the Space (for example a separate snapshot
+  of the tracked files for the Space repository) is still to be decided. The
+  application needs these files: without them PDF rendering is not ready.
+- **Client addresses behind the Spaces proxy.** The address the proxy connects
+  from, and whether it sends `X-Forwarded-For` in a form Uvicorn will trust
+  (section 9), are unknown. Until checked, all visitors may share one
+  rate-limit identity, so the per-client limits (for example 5 analyses per
+  minute and 30 per hour) apply to all visitors together. Check this on the
+  running Space before setting `FORWARDED_ALLOW_IPS` or making the Space
+  public.
+- Available CPU and memory, and start-up time, on the chosen Space hardware.
 - Whether Spaces sets `WEB_CONCURRENCY` or similar variables (section 10).
 
 ---
@@ -203,7 +280,7 @@ the application at start-up with a validation error.
 | Variable | Read by | Effect | Guidance |
 |---|---|---|---|
 | `HF_HOME`, `HF_HUB_CACHE` | `huggingface_hub` | Location of the model cache (default `~/.cache/huggingface`). | Point at a writable directory (section 6). |
-| `HF_HUB_OFFLINE` | `huggingface_hub` | No Hub requests; only cached files are used. | Only with a model baked into the image (section 6). |
+| `HF_HUB_OFFLINE` | `huggingface_hub` | No Hub requests; only cached files are used. | Set to `1` by the Docker image, which contains the model (section 6). Do not set it for a local run without a cached model. |
 | `FORWARDED_ALLOW_IPS` | `uvicorn` | Which proxy addresses may set the client address through `X-Forwarded-For`; default `127.0.0.1,::1`. | Change only after checking the real proxy (section 9). |
 | `WEB_CONCURRENCY` | `uvicorn` | Starts that many worker processes when `--workers` is not given. | **Must not be set** (section 10). |
 | `GROQ_BASE_URL` | `groq` SDK | Changes the Groq API host. | **Must not be set.** The app does not pass a base URL to the LLM client, so this would redirect every model call, with the API key, to another host. |
@@ -223,35 +300,44 @@ lists the variables read by its libraries that matter for a deployment.
 
 - The Sentence-Transformer (`EMBEDDING_MODEL_NAME`, pinned to
   `EMBEDDING_MODEL_REVISION`) is loaded once, at start-up, on CPU, with
-  `trust_remote_code=False` (`backend/scoring/embeddings.py`). If it is not in
-  the cache, it is downloaded from the Hugging Face Hub.
-- The download uses the `huggingface_hub` cache: `HF_HUB_CACHE`, or
-  `$HF_HOME/hub`, or `~/.cache/huggingface/hub` by default. That directory
-  must be writable by the user running the app, or the load fails.
+  `trust_remote_code=False` (`backend/scoring/embeddings.py`). It is read from
+  the `huggingface_hub` cache: `HF_HUB_CACHE`, or `$HF_HOME/hub`, or
+  `~/.cache/huggingface/hub` by default. Whether it can be downloaded when the
+  cache does not have it depends on how the app is run (below).
 - A load failure does **not** stop the application. It is logged as
   `embedding_model_load_failed` with only the exception type, `/ready` reports
   `embedding_model_loaded: false` (503), and `/api/v1/analyze` and
   `/api/v1/match` return 503 `embedding_model_unavailable`. Other endpoints
   (parsing, stored reports, interview) keep working.
 
-### Recommended
+### In the Docker image (verified)
 
-- Set `HF_HOME` to a directory owned by the runtime user, for example
-  `/home/user/.cache/huggingface` for a user with UID 1000.
-- **Bake the model into the image** by loading the pinned revision once
-  during the build, as the runtime user, into that `HF_HOME`. Benefits: no
-  download at start-up, no dependency on the Hub at run time, start-up within
-  platform limits, and the exact revision recorded in the image.
-- With a baked model, consider `HF_HUB_OFFLINE=1` so the running container
-  never contacts the Hub. Test this before relying on it.
-- Without a baked model, the cache must be writable at run time and the
-  container needs outbound access to `huggingface.co`.
+- `HF_HOME` is `/home/user/.cache/huggingface`, owned by the runtime user
+  (UID 1000).
+- The model is **baked into the image**: the pinned revision is downloaded once
+  during the build, as the runtime user, into that `HF_HOME`, using the same
+  arguments as the application's loader. A second build step loads it with
+  the application's own loader under `HF_HUB_OFFLINE=1` and fails the build if
+  the cache and the settings disagree.
+- The image sets `HF_HUB_OFFLINE=1`, so the running container never contacts
+  the Hub. There is no download at start-up, and the exact revision is
+  recorded in the image. In the local verification (section 3) the model
+  loaded offline and `/ready` returned 200.
+- Overriding `EMBEDDING_MODEL_NAME` or `EMBEDDING_MODEL_REVISION` at run time
+  therefore needs `HF_HUB_OFFLINE=0` and Hub access; otherwise `/ready`
+  reports `embedding_model_loaded: false`. Change the model by rebuilding the
+  image instead.
+
+### Local runs (without Docker)
+
+- If the model is not cached, it is downloaded from the Hub on first start
+  into the cache (or `HF_HOME`) and reused afterwards. The cache must be
+  writable by the user running the app, or the load fails, and the machine
+  needs outbound access to `huggingface.co` for the first start.
 
 ### Unresolved
 
-- Time and memory needed to load the model on the target hardware.
-- Behaviour with `HF_HUB_OFFLINE=1` and a pinned revision has not been
-  tested.
+- Time and memory needed to load the model on the target Space hardware.
 
 ---
 
@@ -271,19 +357,23 @@ lists the variables read by its libraries that matter for a deployment.
 **Start-up order (verified in `backend/main.py` and `uvicorn/server.py`):**
 Uvicorn runs the application's start-up (model load, font registration,
 report store, Groq probe) **before** it opens the listening socket. While the
-model downloads or loads, the port is closed and even `/health` cannot
-answer. The socket opens once start-up finishes, whether or not the model
-loaded.
+model loads (and, in a local run without a cached model, downloads), the port
+is closed and even `/health` cannot answer. In the Docker image the model is
+only loaded from the image, never downloaded. The socket opens once start-up
+finishes, whether or not the model loaded.
+
+### In the Docker image (verified)
+
+- The `HEALTHCHECK` uses `GET /health` with a 60 s start period, through
+  Python's standard library (`python:3.12-slim` has no `curl`).
+- In the local verification (section 3), `/health` and `/ready` both returned
+  200.
 
 ### Recommended
 
-- Container liveness / Docker `HEALTHCHECK`: `GET /health`, with a start
-  period long enough for the model to load.
 - Readiness or a post-deployment check: `GET /ready`. Do **not** use `/ready`
   for liveness: a missing key or a failed model load returns 503 permanently,
   and restarting the container will not fix either.
-- `python:3.12-slim` has no `curl`; a health check can use Python's standard
-  library instead.
 
 ---
 
@@ -294,13 +384,14 @@ loaded.
 - Port 7860 appears only in the documented commands; the application does
   not read a `PORT` variable. The port is whatever Uvicorn is started with.
 - Uvicorn's default host is `127.0.0.1`.
+- The Docker image starts Uvicorn with `--host 0.0.0.0 --port 7860` and
+  exposes port 7860.
+- The Spaces front matter in `README.md` sets `app_port: 7860`, matching the
+  Uvicorn port.
 
 ### Recommended
 
-- In a container, start Uvicorn with `--host 0.0.0.0 --port 7860` and expose
-  port 7860.
-- On Spaces, `app_port` must match the Uvicorn port (7860 is also the Spaces
-  default).
+- Keep `app_port` and the Uvicorn port in step if either is ever changed.
 - On a platform that assigns the port through `PORT`, the start command must
   pass it to Uvicorn explicitly; the application will not pick it up.
 
@@ -348,9 +439,9 @@ loaded.
 
 ### Unresolved
 
-- Behind the Spaces proxy (or any proxy not on loopback), every visitor may
-  appear with the proxy's address and share one set of per-client limits
-  until `FORWARDED_ALLOW_IPS` is set correctly.
+- Behind any proxy not on loopback, every visitor may appear with the proxy's
+  address and share one set of per-client limits until `FORWARDED_ALLOW_IPS`
+  is set correctly. For Hugging Face Spaces this is an open issue (section 4).
 - Whether to enable HSTS on Spaces, where TLS is terminated by the platform.
 
 ---
@@ -411,10 +502,10 @@ URL; never paste the API key into commands or logs):
 
 | Symptom | Likely cause | What to check |
 |---|---|---|
-| Port never opens; platform reports a start-up timeout | Model still downloading or loading (start-up runs before the socket opens) | Logs for `embedding_model_loaded` / `embedding_model_load_failed`; bake the model into the image. |
+| Port never opens; platform reports a start-up timeout | Model still loading, or downloading in a local run (start-up runs before the socket opens) | Logs for `embedding_model_loaded` / `embedding_model_load_failed`; the Docker image contains the model, so on Docker check memory and CPU instead. |
 | Connection refused from outside the container | Uvicorn bound to `127.0.0.1` | Start command includes `--host 0.0.0.0`. |
 | `/ready` 503, `groq_api_key_configured: false` | Key missing or blank | Secret name is exactly `GROQ_API_KEY` and is set for the running container. |
-| `/ready` 503, `embedding_model_loaded: false`; `/api/v1/analyze` and `/api/v1/match` 503 `embedding_model_unavailable` | Cache not writable, no Hub access, or offline mode without a cached model | `HF_HOME` ownership and permissions; outbound access to huggingface.co. |
+| `/ready` 503, `embedding_model_loaded: false`; `/api/v1/analyze` and `/api/v1/match` 503 `embedding_model_unavailable` | Local run: cache not writable or no Hub access. Docker: `EMBEDDING_MODEL_*` overridden at run time, so the model is not in the image's cache while `HF_HUB_OFFLINE=1` | Local: `HF_HOME` ownership and permissions; outbound access to huggingface.co. Docker: remove the overrides, or rebuild the image with the new model. |
 | Start-up fails with a validation error | An environment value is out of range or malformed | Compare with `.env.example` ranges. |
 | UI returns 404 at `/`; log shows `frontend_dir_missing` | `frontend/` not in the image, or wrong `FRONTEND_DIR` | Image contents. |
 | Analyses fail with upstream errors | Groq unavailable, quota exhausted, invalid key, a redirected base URL, or a proxy | `/ready` `upstream.groq`; that no `GROQ_BASE_URL` / `GROQ_API_BASE` is set, and whether `HTTPS_PROXY` / `ALL_PROXY` is set. |
@@ -426,11 +517,16 @@ URL; never paste the API key into commands or logs):
 
 ## 13. Open items before deployment
 
-1. Write and test the Dockerfile (section 3), including the model cache
-   (section 6), the non-root user and the health check.
-2. Decide where the Spaces front matter lives (section 4) and create the Space
-   with `GROQ_API_KEY` as a secret.
-3. Measure image size, memory and start-up time.
-4. Verify the Spaces proxy address and set `FORWARDED_ALLOW_IPS` if needed.
+Done: the `Dockerfile` (section 3), the Spaces front matter (section 4), a
+local build and smoke test, and the live Groq test suite (21 tests).
+
+1. Decide how the bundled font files reach the Space repository (section 4),
+   without rewriting this repository's history.
+2. Create the Space (Docker SDK, private) with `GROQ_API_KEY` as a secret, push
+   to it, and run the checks in section 11 on the Space.
+3. Verify the Spaces proxy address and set `FORWARDED_ALLOW_IPS` if needed
+   (sections 4 and 9), before making the Space public.
+4. Measure memory and start-up time on the Space hardware.
 5. Decide on `HSTS_ENABLED` and the final `CSP_FRAME_ANCESTORS` for each target.
-6. Confirm the live Groq test suite passes with the production key.
+6. Confirm the live Groq test suite passes with the production key, if it
+   differs from the key used for the local verification.

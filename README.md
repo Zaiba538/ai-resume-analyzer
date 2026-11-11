@@ -1,3 +1,13 @@
+---
+title: Resume Intelligence Platform
+emoji: 📄
+colorFrom: blue
+colorTo: gray
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Resume Intelligence Platform
 
 ## Overview
@@ -79,7 +89,8 @@ FastAPI application  (backend/main.py → create_app)
             │
             ▼
    Groq API (agents, Critic, evaluator, Prompt Guard)
-   Hugging Face Hub (embedding model, downloaded on first start)
+   Hugging Face Hub (embedding model: downloaded on first start when run
+                     locally; built into the Docker image)
 ```
 
 ---
@@ -112,8 +123,9 @@ Default models (configurable, see `.env.example`):
 - **Linux x86_64 or Windows AMD64.** The hashed locks are resolved only for
   these platforms (PyTorch is pinned to CPU-only wheels for each).
 - A **Groq API key**.
-- Network access to the Groq API and to the Hugging Face Hub (the embedding
-  model is downloaded on first start).
+- Network access to the Groq API and to the Hugging Face Hub (for a local
+  run, the embedding model is downloaded on first start; the Docker image
+  already contains it, see [Deployment](#deployment)).
 - Optional: **Node.js 24** to run the frontend behaviour tests.
 
 ### Install
@@ -343,8 +355,10 @@ manually.
 │   └── data/              # skill aliases and expected resume sections
 ├── frontend/              # Vanilla JavaScript web interface
 ├── tests/                 # unit, integration, security and live tests
-├── docs/                  # interview API, PDF reports, rate limiting
+├── docs/                  # deployment, interview API, PDF reports, rate limiting
 ├── .github/workflows/     # CI
+├── Dockerfile             # production image (also used by Hugging Face Spaces)
+├── .dockerignore          # keeps secrets, environments and documents out of builds
 ├── requirements.in        # runtime top-level pins
 ├── requirements.txt       # hashed runtime lock
 ├── requirements-dev.in    # dev top-level pins
@@ -359,23 +373,55 @@ manually.
 
 ## Deployment
 
-No deployment configuration is included in this repository yet: there is no
-Dockerfile, no Hugging Face Spaces configuration and no deployment pipeline.
-Only a `.dockerignore` exists, which keeps `.env` files, virtual environments
-and uploaded documents out of a future Docker build context. Some defaults
-anticipate a Hugging Face Space (port 7860 in the local command, and
-`CSP_FRAME_ANCESTORS` allowing `https://huggingface.co`), but no such
-deployment has been set up or verified.
+The repository includes a production `Dockerfile` for a single container,
+used both for standalone Docker and for Hugging Face Spaces (Docker SDK). The
+full guide, including configuration, security and open items, is
+[docs/deployment.md](docs/deployment.md).
 
-Points to consider for any deployment:
+The image (linux/amd64) installs only the hashed runtime lock, runs as a
+non-root user (UID 1000), copies only `backend/` and `frontend/`, and starts
+one Uvicorn process on `0.0.0.0:7860`. Its health check uses `GET /health`.
 
-- The local development command listens on `127.0.0.1` only. A container
-  needs Uvicorn to listen on an externally reachable address.
+Status:
+
+- The Docker image has been built successfully, and the local Docker smoke
+  tests passed (health, readiness, the web interface, analysis, interview
+  practice and PDF reports).
+- The Hugging Face Spaces configuration is prepared, but the application has
+  not yet been deployed to a Space.
+
+### Docker
+
+```bash
+docker build --platform linux/amd64 -t resume-intelligence:local .
+docker run --rm -p 7860:7860 -e GROQ_API_KEY resume-intelligence:local
+```
+
+`-e GROQ_API_KEY` without a value passes the key from your shell's
+environment at run time; the key is never part of the image. Then open
+<http://127.0.0.1:7860>.
+
+### Hugging Face Spaces
+
+The YAML front matter at the top of this README configures a Docker Space
+(`sdk: docker`, `app_port: 7860`). When the Space is created, set
+`GROQ_API_KEY` as a **Space secret**; no other setting is required. See
+[docs/deployment.md](docs/deployment.md#4-hugging-face-spaces-docker-sdk) for
+the remaining open items, including client addresses for rate limiting behind
+the Spaces proxy and how the bundled font files are pushed.
+
+### Points to consider for any deployment
+
+- The local development command listens on `127.0.0.1` only; the Docker
+  image listens on `0.0.0.0`.
 - Run a single process (see [Scope and limitations](#scope-and-limitations)).
 - Provide `GROQ_API_KEY` as a secret, never in the image or repository.
 - Client addresses for rate limiting depend on Uvicorn's proxy settings; see
   the proxy section of [docs/rate-limiting.md](docs/rate-limiting.md).
-- The embedding model is downloaded at start-up unless it is already cached.
+- Embedding model: in a local (non-Docker) run it is downloaded from the
+  Hugging Face Hub on first start unless already cached. The Docker image
+  downloads the pinned revision during the build and loads it offline at run
+  time (`HF_HUB_OFFLINE=1`), so the container needs no Hub access.
 
 ---
 
@@ -401,7 +447,8 @@ Do not install `requirements-legacy.txt` into the platform's environment.
 
 - Calibrated ATS scoring
 - Calibrated Prompt Guard threshold
-- Deployment configuration (container image and Hugging Face Space)
+- Hugging Face Space deployment (the Docker image and Space configuration
+  are in place; see [Deployment](#deployment))
 
 ---
 
