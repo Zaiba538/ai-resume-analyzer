@@ -147,10 +147,72 @@ The image `resume-intelligence:local` was built on Docker Engine 29.6.2
   report download all worked.
 - The live Groq test suite (`tests/live`, 21 tests) passed.
 
+### Memory measurement: embedding batch size (2026-11-12)
+
+Commit `20fabb0` lowered `ENCODE_BATCH_SIZE` in
+`backend/scoring/embeddings.py` from 16 to 4: the number of text chunks the
+Sentence-Transformer encodes at once. The rebuilt image was measured locally
+before and after the change.
+
+**Test configuration:**
+
+- Image `resume-intelligence:local`, image ID `10d30b65696c`, `linux/amd64`.
+- FastAPI with one Uvicorn worker, started as in the image (`--host 0.0.0.0`,
+  port 7860), in a temporary container.
+- Workload: 3 × `POST /api/v1/match` with a synthetic resume of 18,360
+  characters and a job description of 5,240 characters.
+- Two runs per batch size, alternating 4, 16, 4, 16, each in a fresh
+  container. The batch-16 runs used the same image, with the constant set to
+  16 in memory by a launcher script; no source file or image was changed.
+
+**Results (average of two runs):**
+
+| Measurement | Batch 16 | Batch 4 | Change |
+|---|---:|---:|---:|
+| Idle process RSS | 528 MiB | 528 MiB | No change |
+| Idle Docker stats | 425 MiB | 431 MiB | No material change |
+| Peak process RSS (VmHWM) | 728 MiB | 634 MiB | -94 MiB |
+| Peak container cgroup | 575 MiB | 487 MiB | -88 MiB |
+| Docker stats after request 1 | 514 MiB | 469 MiB | -45 MiB |
+| Docker stats after request 3 | 523 MiB | 466 MiB | -57 MiB |
+| Process RSS, 30 seconds later | 675 MiB | 615 MiB | -60 MiB |
+| Anonymous memory, 30 seconds later | 497 MiB | 446 MiB* | -51 MiB |
+| Docker stats, 30 seconds later | 520 MiB | 466 MiB | -54 MiB |
+
+\* Anonymous memory was captured in only one batch-4 run.
+
+"Peak" rows are the highest value reached while the requests ran; the
+"after" and "30 seconds later" rows are the memory still held once they had
+finished.
+
+**Validation:**
+
+- `GET /health` returned 200 in all four runs. `GET /ready` returned 200 with
+  every readiness check `true`.
+- All 12 matching requests returned 200, and their outputs were identical for
+  both batch sizes: semantic similarity 56.52, skill coverage 40.0, section
+  completeness 0.0, TF-IDF 17.95, ATS status `not_calibrated`.
+- No restarts, no OOM kills and no application errors.
+
+**Caveats:**
+
+- Docker stats and cgroup figures were lowered by library pages shared with
+  the existing smoke-test container, which ran an image with identical
+  dependency layers; those pages were charged to that container.
+- Process RSS is therefore the more useful figure for the application's own
+  footprint, but it counts shared pages in full.
+- An earlier standalone experiment (the embedding code alone, without the web
+  application) measured a similar peak reduction of about 93 MiB.
+- Idle memory did not materially change. The improvement occurs during
+  matching and in the memory retained after requests.
+- These are local measurements of one workload, not a guaranteed memory
+  requirement for any hosting provider.
+
 ### Unresolved
 
-- Memory use, start-up time and build time have not been measured. CPU
-  PyTorch and the Sentence-Transformer dominate all three.
+- Start-up time and build time have not been measured, and memory has been
+  measured only locally (above), not on target hardware. CPU PyTorch and the
+  Sentence-Transformer dominate all three.
 - Whether any library writes temporary files during uploads has not been
   checked.
 
