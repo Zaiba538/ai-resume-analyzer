@@ -27,7 +27,7 @@ from backend.core.errors import AppError
 
 logger = logging.getLogger("backend.scoring.embeddings")
 
-ENCODE_BATCH_SIZE = 16
+ENCODE_BATCH_SIZE = 4
 SPECIAL_TOKENS = 2  # [CLS] and [SEP]
 
 # Hugging Face libraries: no telemetry, no tokenizer thread pools in workers, and
