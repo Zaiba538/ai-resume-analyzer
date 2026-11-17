@@ -511,7 +511,12 @@ def _security_section(flags: Sequence[SecurityFlag]) -> list[Flowable]:
     types = list(dict.fromkeys(flag.type for flag in flags))  # types only, each once
     if not types:
         return [*out, _message("no_security_flags")]
-    out.append(_message("security_notice"))
-    for flag_type in types:
-        out.append(_fixed(label("security_flags", flag_type), "bullet", bulletText=BULLET))
+    # Removed links are a precaution on generated text, not an injection finding.
+    injection_types = [t for t in types if t != "unexpected_url"]
+    if injection_types:
+        out.append(_message("security_notice"))
+        for flag_type in injection_types:
+            out.append(_fixed(label("security_flags", flag_type), "bullet", bulletText=BULLET))
+    if "unexpected_url" in types:
+        out.append(_message("links_removed_notice"))
     return out

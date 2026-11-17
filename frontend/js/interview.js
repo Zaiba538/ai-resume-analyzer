@@ -150,7 +150,7 @@ export function renderEvaluation(container, response) {
       el("h4", { text: "Security flags" }),
       el("p", {
         className: "muted",
-        text: "Informational only: parts of the input resemble prompt-injection attempts.",
+        text: "Informational only: parts of the input may resemble prompt-injection attempts, or unexpected links were removed from generated text.",
       }),
       flagTable(response.security_flags, ""),
     );

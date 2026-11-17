@@ -63,6 +63,7 @@ ALLOWED_FIELDS = frozenset(
         "critic_verdict",
         "revisions",
         "security_flag_types",
+        "url_findings",
     }
 )
 

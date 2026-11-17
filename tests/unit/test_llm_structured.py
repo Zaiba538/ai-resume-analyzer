@@ -425,3 +425,15 @@ def test_upstream_diagnostics_handle_missing_or_malformed_metadata(exc, expected
     assert diagnostics.error_type == type(exc).__name__
     assert set(diagnostics.log_fields()) == set(DIAGNOSTIC_FIELDS)
     assert "private body" not in repr(diagnostics.log_fields())
+
+
+@pytest.mark.asyncio
+async def test_removed_links_logged_with_agent_name_only(captured_logs, backend_info_logs) -> None:
+    dirty = {**VALID, "projects": ["See https://evil.example/private-path and bit.ly/abc"]}
+    fake = FakeGroqChat().queue(json_reply(dirty))
+    await _generate(_llm(fake))
+    (record,) = captured_logs.events("llm_output_links_removed")
+    assert record["node"] == "resume"
+    assert record["url_findings"] == 2
+    assert "evil.example" not in captured_logs.text
+    assert "bit.ly" not in captured_logs.text

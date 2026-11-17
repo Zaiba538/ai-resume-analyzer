@@ -156,7 +156,7 @@ SECURITY_FLAGS = _group(
     ("score_manipulation", "Score manipulation attempt"),
     ("delimiter_injection", "Delimiter injection attempt"),
     ("classifier", "Prompt-injection classifier alert"),
-    ("unexpected_url", "Unexpected URL in generated output"),
+    ("unexpected_url", "Unexpected links removed from generated text"),
 )
 
 MESSAGES = _group(
@@ -172,6 +172,11 @@ MESSAGES = _group(
         "security_notice",
         "Possible prompt-injection or hidden content was detected. "
         "Only the type of each finding is shown.",
+    ),
+    (
+        "links_removed_notice",
+        "Unexpected links were removed from generated text. This is a precaution "
+        "and does not by itself indicate prompt injection.",
     ),
     ("no_security_flags", "No security notices."),
     ("no_issues", "No issues reported."),

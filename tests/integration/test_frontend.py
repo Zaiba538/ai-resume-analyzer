@@ -283,6 +283,38 @@ def test_ats_composite_is_shown_as_not_calibrated_and_never_as_a_score() -> None
             assert field not in source, f"{path.name} reads {field}"
 
 
+OLD_URL_FLAG_WORDING = "Unexpected URL in generated output"
+
+
+def test_unexpected_url_flag_label_says_links_were_removed() -> None:
+    results = (JS_DIR / "results.js").read_text(encoding="utf-8")
+    block = object_block(results, "FLAG_TYPE_LABELS")
+    assert re.search(
+        r'^\s{2}unexpected_url: "Unexpected links removed from generated text",$',
+        block,
+        flags=re.MULTILINE,
+    )
+    assert OLD_URL_FLAG_WORDING not in results
+
+
+def test_interview_flag_notice_does_not_call_every_flag_prompt_injection() -> None:
+    interview = (JS_DIR / "interview.js").read_text(encoding="utf-8")
+    assert (
+        "Informational only: parts of the input may resemble prompt-injection attempts, "
+        "or unexpected links were removed from generated text."
+    ) in interview
+    assert "Informational only: parts of the input resemble prompt-injection attempts." not in (
+        interview
+    )
+    assert OLD_URL_FLAG_WORDING not in interview
+
+
+def test_old_unexpected_url_wording_is_gone_from_the_frontend() -> None:
+    for path in FRONTEND_DIR.rglob("*"):
+        if path.suffix in MEDIA_TYPES:
+            assert OLD_URL_FLAG_WORDING not in path.read_text(encoding="utf-8"), path.name
+
+
 def test_every_element_id_used_by_the_scripts_exists_in_index_html() -> None:
     html = (FRONTEND_DIR / "index.html").read_text(encoding="utf-8")
     ids = re.findall(r'\sid="([^"]+)"', html)

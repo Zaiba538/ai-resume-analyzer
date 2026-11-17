@@ -753,3 +753,28 @@ def test_concurrent_rendering_and_registry_verification() -> None:
     assert registries == [True] * 12
     assert len(outputs) == 24
     assert all(data == expected[index] for index, data in outputs)
+
+
+def test_removed_links_have_their_own_notice_not_the_injection_notice() -> None:
+    flags = [{"type": "unexpected_url", "source": "llm_output"}]
+    text = _flat(_text(_render(_with(security_flags=flags))))
+    section = text.split(_flat(label("sections", "security")), 1)[1]
+    assert _flat(label("messages", "links_removed_notice")) in section
+    assert "Unexpectedlinkswereremovedfromgeneratedtext." in section
+    assert "doesnotbyitselfindicatepromptinjection" in section
+    assert _flat(label("messages", "security_notice")) not in section
+    assert "UnexpectedURL" not in section
+
+
+def test_injection_and_removed_links_are_reported_separately() -> None:
+    flags = [
+        {"type": "unexpected_url", "source": "llm_output"},
+        {"type": "instruction_override", "source": "resume"},
+    ]
+    text = _flat(_text(_render(_with(security_flags=flags))))
+    section = text.split(_flat(label("sections", "security")), 1)[1]
+    notice = section.index(_flat(label("messages", "security_notice")))
+    override = section.index(_flat(label("security_flags", "instruction_override")))
+    links = section.index(_flat(label("messages", "links_removed_notice")))
+    assert notice < override < links
+    assert _flat(label("security_flags", "unexpected_url")) not in section

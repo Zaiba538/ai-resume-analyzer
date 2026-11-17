@@ -206,7 +206,7 @@ class StructuredLLM:
             if result.get("parsing_error") is None and isinstance(parsed, dict):
                 try:
                     validated = schema.model_validate(parsed)
-                    output, flags = validate_llm_output(validated, source_texts=sources)
+                    output, flags = validate_llm_output(validated, source_texts=sources, role=role)
                 except ValidationError:
                     pass
                 else:

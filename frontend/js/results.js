@@ -35,7 +35,7 @@ export const FLAG_TYPE_LABELS = Object.freeze({
   score_manipulation: "Score manipulation attempt",
   delimiter_injection: "Delimiter injection",
   classifier: "Prompt-injection classifier",
-  unexpected_url: "Unexpected URL in generated output",
+  unexpected_url: "Unexpected links removed from generated text",
 });
 
 export const FLAG_SOURCE_LABELS = Object.freeze({
