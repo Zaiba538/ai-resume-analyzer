@@ -19,6 +19,8 @@ carry these protections, or start-up fails.
 from __future__ import annotations
 
 import asyncio
+import atexit
+import gc
 import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
@@ -78,6 +80,26 @@ OPENAPI_URL = "/openapi.json"
 
 # Headroom above the file limit for multipart boundaries, part headers and fields.
 MULTIPART_OVERHEAD_BYTES = 64 * 1024
+
+_exit_gc_freeze_registered = False
+
+
+def register_exit_gc_freeze() -> None:
+    """Skip the interpreter's final garbage collection at process exit (once per process).
+
+    With PyTorch, Sentence-Transformers and LangChain loaded the heap holds about
+    600,000 tracked objects. After uvicorn has returned, interpreter finalisation
+    spent several seconds, more than ten under load, garbage-collecting them on
+    one CPU, so ``docker stop`` reached its grace period and killed the process
+    (exit 137). ``gc.freeze()`` moves every live object to the permanent
+    generation, which that final collection skips. ``atexit`` handlers run before
+    it, and the application's own resources are already closed by the lifespan,
+    so nothing is lost; the operating system reclaims the memory.
+    """
+    global _exit_gc_freeze_registered
+    if not _exit_gc_freeze_registered:
+        atexit.register(gc.freeze)
+        _exit_gc_freeze_registered = True
 
 
 def create_app(
@@ -185,6 +207,7 @@ def create_app(
             await llm_clients.aclose()
             # This lifespan's gate only; it neither waits for nor stops a running worker.
             document_gate.shutdown()
+            register_exit_gc_freeze()  # the process usually exits next
             logger.info("application_stopped", extra={"component": "app"})
 
     docs = settings.api_docs_enabled
